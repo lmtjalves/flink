@@ -268,6 +268,7 @@ public class Task implements Runnable {
 
 		checkArgument(0 <= subtaskIndex, "The subtask index must be positive.");
 		checkArgument(0 <= attemptNumber, "The attempt number must be positive.");
+		/*THESIS: This is irrelevant as we can generate a random positive number, since it is not used*/
 		checkArgument(0 <= targetSlotNumber, "The target slot number must be positive.");
 
 		this.taskInfo = new TaskInfo(

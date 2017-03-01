@@ -52,7 +52,7 @@ import org.apache.flink.runtime.execution.ExecutionState
 import org.apache.flink.runtime.execution.librarycache.{BlobLibraryCacheManager, FallbackLibraryCacheManager, LibraryCacheManager}
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID
 import org.apache.flink.runtime.filecache.FileCache
-import org.apache.flink.runtime.instance.{AkkaActorGateway, HardwareDescription, InstanceConnectionInfo, InstanceID}
+import org.apache.flink.runtime.instance._
 import org.apache.flink.runtime.io.disk.iomanager.IOManager.IOMode
 import org.apache.flink.runtime.io.disk.iomanager.{IOManager, IOManagerAsync}
 import org.apache.flink.runtime.io.network.NetworkEnvironment
@@ -1118,10 +1118,12 @@ class TaskManager(
         case None => throw new IllegalStateException("There is no valid library cache manager.")
       }
 
+      /* THESIS: Slots are now dynamic, no need to check this
       val slot = tdd.getTargetSlotNumber
       if (slot < 0 || slot >= numberOfSlots) {
         throw new IllegalArgumentException(s"Target slot $slot does not exist on TaskManager.")
       }
+      */
 
       // create the task. this does not grab any TaskManager resources or download
       // and libraries - the operation does not block
@@ -1947,6 +1949,8 @@ object TaskManager {
       }
     }
 
+    /*THESIS: Irrelevant since this is not used for stream applications
+     * see: http://apache-flink-mailing-list-archive.1008284.n3.nabble.com/Memory-Management-in-Streaming-mode-td13317.html*/
     // now start the memory manager
     val memoryManager = try {
       new MemoryManager(
@@ -2077,12 +2081,14 @@ object TaskManager {
 
     // ----> memory / network stack (shuffles/broadcasts), task slots, temp directories
 
+    /*THESIS: Irrelevant*/
     // we need this because many configs have been written with a "-1" entry
     val slots = configuration.getInteger(ConfigConstants.TASK_MANAGER_NUM_TASK_SLOTS, 1) match {
       case -1 => 1
       case x => x
     }
 
+    /*THESIS: Irrelevant*/
     checkConfigParameter(slots >= 1, slots, ConfigConstants.TASK_MANAGER_NUM_TASK_SLOTS,
       "Number of task slots must be at least one.")
 
@@ -2144,12 +2150,21 @@ object TaskManager {
     val nettyConfig = if (localTaskManagerCommunication) {
       None
     } else {
+      /*THESIS: the slots will determine the amount of threads/arenas for netty, as such, since we assume the bottleneck
+       * occurs when the cpu usage = 100%, we set this to the number of cores (an higher value will lead to using more resources
+       * than needed */
       Some(
-        new NettyConfig(
+        /*new NettyConfig(
           connectionInfo.address(),
           connectionInfo.dataPort(),
           pageSize,
           slots,
+          configuration)*/
+        new NettyConfig(
+          connectionInfo.address(),
+          connectionInfo.dataPort(),
+          pageSize,
+          Hardware.getNumberCPUCores,
           configuration)
       )
     }
