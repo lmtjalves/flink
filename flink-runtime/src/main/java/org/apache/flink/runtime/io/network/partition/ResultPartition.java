@@ -214,6 +214,8 @@ public class ResultPartition implements BufferPoolOwner {
 		return totalNumberOfBytes;
 	}
 
+	public int getSubpartitionNonDropProbability(int subpartitionIndex) { return subpartitions[subpartitionIndex].getNonDropProbability(); }
+
 	// ------------------------------------------------------------------------
 
 	/**

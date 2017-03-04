@@ -27,6 +27,7 @@ import org.apache.flink.runtime.io.network.api.serialization.SpanningRecordSeria
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 
 import java.io.IOException;
+import java.util.Random;
 
 import static org.apache.flink.runtime.io.network.api.serialization.RecordSerializer.SerializationResult;
 
@@ -51,6 +52,8 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 	private final int numChannels;
 
+	private final Random random;
+
 	/** {@link RecordSerializer} per outgoing channel */
 	private final RecordSerializer<T>[] serializers;
 
@@ -65,6 +68,8 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 		this.numChannels = writer.getNumberOfOutputChannels();
 
+		this.random = new Random();
+
 		/**
 		 * The runtime exposes a channel abstraction for the produced results
 		 * (see {@link ChannelSelector}). Every channel has an independent
@@ -78,7 +83,9 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 	public void emit(T record) throws IOException, InterruptedException {
 		for (int targetChannel : channelSelector.selectChannels(record, numChannels)) {
-			sendToTarget(record, targetChannel);
+			if(random.nextInt(100) > targetPartition.getChannelNonDropProbability(targetChannel)) {
+				sendToTarget(record, targetChannel);
+			}
 		}
 	}
 

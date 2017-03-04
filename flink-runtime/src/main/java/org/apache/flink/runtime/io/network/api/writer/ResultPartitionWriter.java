@@ -63,6 +63,8 @@ public final class ResultPartitionWriter implements EventListener<TaskEvent> {
 		return partition.getNumberOfSubpartitions();
 	}
 
+	public int getChannelNonDropProbability(int targetChannel) { return partition.getSubpartitionNonDropProbability(targetChannel); }
+
 	// ------------------------------------------------------------------------
 	// Data processing
 	// ------------------------------------------------------------------------

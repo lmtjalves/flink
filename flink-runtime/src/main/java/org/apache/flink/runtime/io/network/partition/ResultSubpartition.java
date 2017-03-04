@@ -34,6 +34,8 @@ public abstract class ResultSubpartition {
 	/** The parent partition this subpartition belongs to. */
 	protected final ResultPartition parent;
 
+	private int nonDropProbability;
+
 	// - Statistics ----------------------------------------------------------
 
 	/** The total number of buffers (both data and event buffers) */
@@ -43,8 +45,13 @@ public abstract class ResultSubpartition {
 	private long totalNumberOfBytes;
 
 	public ResultSubpartition(int index, ResultPartition parent) {
+		this(index, parent, 100);
+	}
+
+	public ResultSubpartition(int index, ResultPartition parent, int nonDropProbability) {
 		this.index = index;
 		this.parent = parent;
+		this.nonDropProbability = nonDropProbability;
 	}
 
 	protected void updateStatistics(Buffer buffer) {
@@ -59,6 +66,8 @@ public abstract class ResultSubpartition {
 	protected long getTotalNumberOfBytes() {
 		return totalNumberOfBytes;
 	}
+
+	public int getNonDropProbability() { return nonDropProbability; }
 
 	/**
 	 * Notifies the parent partition about a consumed {@link ResultSubpartitionView}.
