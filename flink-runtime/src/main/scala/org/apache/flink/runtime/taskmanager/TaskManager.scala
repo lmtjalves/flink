@@ -559,7 +559,8 @@ class TaskManager(
         task.setSubPartitionNonDropProbability(partitionID, subpartitionId, nonDropProbability)
       }
       case None => {
-        log.debug(s"Cannot find task with ID $executionId who's non drop probability must be updated")
+        log.debug(s"Cannot find task with ID $executionId who's non drop probability " +
+          s"must be updated")
       }
     }
   }
