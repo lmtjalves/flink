@@ -146,6 +146,13 @@ object TaskMessages {
   case class FailIntermediateResultPartitions(executionID: ExecutionAttemptID)
     extends TaskMessage with RequiresLeaderSessionID
 
+  case class UpdateTaskOutputSubpartitionNonDropProbability(
+       executionId: ExecutionAttemptID,
+       partitionID: Int,
+       subpartitionId: Int,
+       nonDropProbability: Int)
+    extends TaskMessage
+
 
   // --------------------------------------------------------------------------
   //  Report Messages
