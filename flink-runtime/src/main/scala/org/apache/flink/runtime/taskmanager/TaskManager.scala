@@ -395,6 +395,17 @@ class TaskManager(
         case UpdateTaskMultiplePartitionInfos(executionID, partitionInfos) =>
           updateTaskInputPartitions(executionID, partitionInfos)
 
+        case UpdateTaskOutputSubpartitionNonDropProbability(
+            executionId,
+            partitionID,
+            subpartitionId,
+            nonDropProbability) => updateOutputSubpartitionNonDropProbability(
+            executionId,
+            partitionID,
+            subpartitionId,
+            nonDropProbability
+        )
+
         // discards intermediate result partitions of a task execution on this TaskManager
         case FailIntermediateResultPartitions(executionID) =>
           log.info("Discarding the results produced by task execution " + executionID)
@@ -534,6 +545,21 @@ class TaskManager(
               log.debug(s"Cannot find task with ID $receiverExecutionId to forward partition " +
                 "state respond to.")
           }
+      }
+    }
+  }
+
+  private def updateOutputSubpartitionNonDropProbability(
+    executionId: ExecutionAttemptID,
+    partitionID: Int,
+    subpartitionId: Int,
+    nonDropProbability: Int): Unit = {
+    Option(runningTasks.get()) match {
+      case Some(task) => {
+        task.setSubPartitionNonDropProbability(partitionID, subpartitionId, nonDropProbability)
+      }
+      case None => {
+        log.debug(s"Cannot find task with ID $executionId who's non drop probability must be updated")
       }
     }
   }
