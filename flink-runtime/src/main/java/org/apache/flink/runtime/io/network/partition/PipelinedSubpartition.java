@@ -56,7 +56,11 @@ class PipelinedSubpartition extends ResultSubpartition {
 	// ------------------------------------------------------------------------
 
 	PipelinedSubpartition(int index, ResultPartition parent) {
-		super(index, parent);
+		this(index, parent, 100);
+	}
+
+	PipelinedSubpartition(int index, ResultPartition parent, int nonDropProbability) {
+		super(index, parent, nonDropProbability);
 	}
 
 	@Override

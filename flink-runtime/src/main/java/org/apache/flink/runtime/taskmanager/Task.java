@@ -408,6 +408,12 @@ public class Task implements Runnable {
 		return producedPartitions;
 	}
 
+	public void setSubPartitionNonDropProbability(int partitionId, int subPartitionId, int p) {
+		checkArgument(0 >= partitionId && partitionId < producedPartitions.length,
+			"The partitionId must be between 0 and the amount of partitions - 1");
+		producedPartitions[partitionId].setSubpartitionNonDropProbability(subPartitionId, p);
+	}
+
 	public SingleInputGate getInputGateById(IntermediateDataSetID id) {
 		return inputGatesById.get(id);
 	}

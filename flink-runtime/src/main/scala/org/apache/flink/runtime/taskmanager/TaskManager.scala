@@ -1950,7 +1950,7 @@ object TaskManager {
     }
 
     /*THESIS: Irrelevant since this is not used for stream applications
-     * see: http://apache-flink-mailing-list-archive.1008284.n3.nabble.com/Memory-Management-in-Streaming-mode-td13317.html*/
+     */
     // now start the memory manager
     val memoryManager = try {
       new MemoryManager(
@@ -2150,9 +2150,9 @@ object TaskManager {
     val nettyConfig = if (localTaskManagerCommunication) {
       None
     } else {
-      /*THESIS: the slots will determine the amount of threads/arenas for netty, as such, since we assume the bottleneck
-       * occurs when the cpu usage = 100%, we set this to the number of cores (an higher value will lead to using more resources
-       * than needed */
+      /*THESIS: the slots will determine the amount of threads/arenas for netty, as such,
+       * since we assume the bottleneck occurs when the cpu usage = 100%, we set this to
+       * the number of cores (an higher value will lead to using more resources than needed */
       Some(
         /*new NettyConfig(
           connectionInfo.address(),

@@ -34,7 +34,7 @@ public abstract class ResultSubpartition {
 	/** The parent partition this subpartition belongs to. */
 	protected final ResultPartition parent;
 
-	private int nonDropProbability;
+	private volatile int nonDropProbability;
 
 	// - Statistics ----------------------------------------------------------
 
@@ -68,6 +68,8 @@ public abstract class ResultSubpartition {
 	}
 
 	public int getNonDropProbability() { return nonDropProbability; }
+
+	public void setNonDropProbability(int nonDropProbability) { this.nonDropProbability = nonDropProbability; }
 
 	/**
 	 * Notifies the parent partition about a consumed {@link ResultSubpartitionView}.
