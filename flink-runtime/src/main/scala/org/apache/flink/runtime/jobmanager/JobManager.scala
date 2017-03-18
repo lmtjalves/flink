@@ -968,6 +968,9 @@ class JobManager(
 
       instanceManager.reportHeartBeat(instanceID, metricsReport)
 
+      // FIXME Remove this later
+      log.info("received metric:" + new String(metricsReport, "utf-8"))
+
     case message: AccumulatorMessage => handleAccumulatorMessage(message)
 
     case message: InfoMessage => handleInfoRequestMessage(message, sender())

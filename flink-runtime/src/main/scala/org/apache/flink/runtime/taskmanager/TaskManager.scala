@@ -1201,7 +1201,8 @@ class TaskManager(
         libCache,
         fileCache,
         runtimeInfo,
-        taskMetricGroup)
+        taskMetricGroup,
+        metricRegistry)
 
       log.info(s"Received task ${task.getTaskInfo.getTaskNameWithSubtasks()}")
 
@@ -2433,7 +2434,7 @@ object TaskManager {
 
     // Pre-processing steps for registering cpuLoad
     val osBean: OperatingSystemMXBean = ManagementFactory.getOperatingSystemMXBean()
-        
+
     val fetchCPULoadMethod: Option[Method] = 
       try {
         Class.forName("com.sun.management.OperatingSystemMXBean")

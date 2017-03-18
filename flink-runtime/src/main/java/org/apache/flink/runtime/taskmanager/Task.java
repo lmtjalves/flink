@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.taskmanager;
 
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.MetricRegistry;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
@@ -70,6 +72,8 @@ import org.slf4j.LoggerFactory;
 import scala.concurrent.duration.FiniteDuration;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.net.URL;
 import java.util.Collection;
 import java.util.HashMap;
@@ -238,31 +242,34 @@ public class Task implements Runnable {
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
 	private long taskCancellationTimeout;
 
+	private MetricRegistry metricRegistry;
+
 	/**
 	 * <p><b>IMPORTANT:</b> This constructor may not start any work that would need to
 	 * be undone in the case of a failing task deployment.</p>
 	 */
 	public Task(
-			JobInformation jobInformation,
-			TaskInformation taskInformation,
-			ExecutionAttemptID executionAttemptID,
-			int subtaskIndex,
-			int attemptNumber,
-			Collection<ResultPartitionDeploymentDescriptor> resultPartitionDeploymentDescriptors,
-			Collection<InputGateDeploymentDescriptor> inputGateDeploymentDescriptors,
-			int targetSlotNumber,
-			SerializedValue<StateHandle<?>> operatorState,
-			MemoryManager memManager,
-			IOManager ioManager,
-			NetworkEnvironment networkEnvironment,
-			BroadcastVariableManager bcVarManager,
-			ActorGateway taskManagerActor,
-			ActorGateway jobManagerActor,
-			FiniteDuration actorAskTimeout,
-			LibraryCacheManager libraryCache,
-			FileCache fileCache,
-			TaskManagerRuntimeInfo taskManagerConfig,
-			TaskMetricGroup metricGroup) {
+		JobInformation jobInformation,
+		TaskInformation taskInformation,
+		ExecutionAttemptID executionAttemptID,
+		int subtaskIndex,
+		int attemptNumber,
+		Collection<ResultPartitionDeploymentDescriptor> resultPartitionDeploymentDescriptors,
+		Collection<InputGateDeploymentDescriptor> inputGateDeploymentDescriptors,
+		int targetSlotNumber,
+		SerializedValue<StateHandle<?>> operatorState,
+		MemoryManager memManager,
+		IOManager ioManager,
+		NetworkEnvironment networkEnvironment,
+		BroadcastVariableManager bcVarManager,
+		ActorGateway taskManagerActor,
+		ActorGateway jobManagerActor,
+		FiniteDuration actorAskTimeout,
+		LibraryCacheManager libraryCache,
+		FileCache fileCache,
+		TaskManagerRuntimeInfo taskManagerConfig,
+		TaskMetricGroup metricGroup,
+		MetricRegistry metricRegistry) {
 		checkNotNull(jobInformation);
 		checkNotNull(taskInformation);
 
@@ -366,7 +373,31 @@ public class Task implements Runnable {
 
 		// finally, create the executing thread, but do not start it
 		executingThread = new Thread(TASK_THREADS_GROUP, this, taskNameWithSubtask);
+		metricRegistry.register(taskNameWithSubtask,
+		new Gauge<Long>() {
+			long lastTime = 0L;
+			long previousCpuTime = 0L;
+			ThreadMXBean tmxb = ManagementFactory.getThreadMXBean();
+
+			@Override
+			public Long getValue() {
+				tmxb.setThreadCpuTimeEnabled(true);
+
+				long currTime = System.currentTimeMillis();
+				long currentCpuTime = tmxb.getThreadCpuTime(executingThread.getId()) / 1000000;
+
+				long elapsedTime = currTime - lastTime;
+				long elapsedCpuTime = currentCpuTime - previousCpuTime;
+				long res = 100 * elapsedCpuTime / elapsedTime;
+				lastTime = currTime;
+				previousCpuTime = currentCpuTime;
+				return res;
+			}
+		});
+
+		this.metricRegistry = metricRegistry;
 	}
+
 
 	// ------------------------------------------------------------------------
 	//  Accessors
@@ -736,6 +767,8 @@ public class Task implements Runnable {
 		finally {
 			try {
 				LOG.info("Freeing task resources for {} ({}).", taskNameWithSubtask, executionId);
+
+				metricRegistry.remove(this.taskNameWithSubtask);
 
 				// stop the async dispatcher.
 				// copy dispatcher reference to stack, against concurrent release
