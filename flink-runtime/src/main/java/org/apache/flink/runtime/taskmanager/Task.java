@@ -373,7 +373,7 @@ public class Task implements Runnable {
 
 		// finally, create the executing thread, but do not start it
 		executingThread = new Thread(TASK_THREADS_GROUP, this, taskNameWithSubtask);
-		metricRegistry.register(taskNameWithSubtask,
+		metricRegistry.register(jobInformation.getJobId() + "/" + taskInformation.getJobVertexId() + "/" + subtaskIndex,
 		new Gauge<Long>() {
 			long lastTime = 0L;
 			long previousCpuTime = 0L;
