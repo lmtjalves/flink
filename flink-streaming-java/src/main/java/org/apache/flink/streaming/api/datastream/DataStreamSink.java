@@ -122,4 +122,23 @@ public class DataStreamSink<T> {
 		transformation.setSlotSharingGroup(slotSharingGroup);
 		return this;
 	}
+
+	/**
+	 * Sets the minimum accuracy allowed for this sink.
+	 * @param minAccuracy
+	 * @return
+	 */
+	public DataStreamSink<T> withMinAccuracy(int minAccuracy) {
+		transformation.setMinAccuracy(minAccuracy);
+		return this;
+	}
+
+	/**
+	 * Specifies the priority of this sink.
+	 * @return
+	 */
+	public DataStreamSink<T> withPriority(int priority) {
+		transformation.setPriority(priority);
+		return this;
+	}
 }

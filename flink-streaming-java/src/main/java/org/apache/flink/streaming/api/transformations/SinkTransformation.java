@@ -24,6 +24,7 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.StreamSink;
+import org.apache.flink.util.Preconditions;
 
 import java.util.Collection;
 import java.util.List;
@@ -45,6 +46,10 @@ public class SinkTransformation<T> extends StreamTransformation<Object> {
 	
 	private TypeInformation<?> stateKeyType;
 
+	private int minAccuracy;
+
+	private int priority;
+
 	/**
 	 * Creates a new {@code SinkTransformation} from the given input {@code StreamTransformation}.
 	 *
@@ -61,6 +66,8 @@ public class SinkTransformation<T> extends StreamTransformation<Object> {
 		super(name, TypeExtractor.getForClass(Object.class), parallelism);
 		this.input = input;
 		this.operator = operator;
+		this.minAccuracy = 100;
+		this.priority = 0;
 	}
 
 	/**
@@ -115,5 +122,24 @@ public class SinkTransformation<T> extends StreamTransformation<Object> {
 	@Override
 	public final void setChainingStrategy(ChainingStrategy strategy) {
 		operator.setChainingStrategy(strategy);
+	}
+
+
+	public int getAccuracy() {
+		return this.minAccuracy;
+	}
+
+	public void setMinAccuracy(int minAccuracy) {
+		Preconditions.checkArgument(minAccuracy >= 0, "Minimum accuracy must not be negative.");
+		Preconditions.checkArgument(minAccuracy <= 100, "Minimum accuracy must be lower or equal to 100.");
+		this.minAccuracy = minAccuracy;
+	}
+
+	public int getPriority() {
+		return this.priority;
+	}
+
+	public void setPriority(int priority) {
+		this.priority = priority;
 	}
 }
