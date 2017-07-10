@@ -46,6 +46,16 @@ public class SinkTransformation<T> extends StreamTransformation<Object> {
 	private TypeInformation<?> stateKeyType;
 
 	/**
+	 * Priority of the sink.
+	 */
+	private int priority;
+
+	/**
+	 * Minimum accuracy that must be provided by this sink.
+	 */
+	private int accuracy;
+
+	/**
 	 * Creates a new {@code SinkTransformation} from the given input {@code StreamTransformation}.
 	 *
 	 * @param input The input {@code StreamTransformation}
@@ -61,6 +71,8 @@ public class SinkTransformation<T> extends StreamTransformation<Object> {
 		super(name, TypeExtractor.getForClass(Object.class), parallelism);
 		this.input = input;
 		this.operator = operator;
+		this.accuracy = 100;
+		this.priority = 0;
 	}
 
 	/**
@@ -115,5 +127,24 @@ public class SinkTransformation<T> extends StreamTransformation<Object> {
 	@Override
 	public final void setChainingStrategy(ChainingStrategy strategy) {
 		operator.setChainingStrategy(strategy);
+	}
+
+	public int getPriority() {
+		return this.priority;
+	}
+
+	public void setPriority(int priority) {
+		this.priority = priority;
+	}
+
+	public int getAccuracy() {
+		return this.accuracy;
+	}
+
+	public void setAccuracy(int accuracy) {
+		Preconditions.checkArgument(minAccuracy >= 0, "Minimum accuracy must not be negative.");
+		Preconditions.checkArgument(minAccuracy <= 100, "Minimum accuracy must be lower or equal to 100.");
+
+		this.accuracy = accuracy;
 	}
 }
