@@ -24,6 +24,7 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.StreamSink;
+import org.apache.flink.util.Preconditions;
 
 import java.util.Collection;
 import java.util.List;
@@ -142,8 +143,8 @@ public class SinkTransformation<T> extends StreamTransformation<Object> {
 	}
 
 	public void setAccuracy(int accuracy) {
-		Preconditions.checkArgument(minAccuracy >= 0, "Minimum accuracy must not be negative.");
-		Preconditions.checkArgument(minAccuracy <= 100, "Minimum accuracy must be lower or equal to 100.");
+		Preconditions.checkArgument(accuracy >= 0, "Minimum accuracy must not be negative.");
+		Preconditions.checkArgument(accuracy <= 100, "Minimum accuracy must be lower or equal to 100.");
 
 		this.accuracy = accuracy;
 	}

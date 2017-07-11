@@ -21,8 +21,10 @@ package org.apache.flink.runtime.messages
 import java.util.UUID
 
 import akka.actor.ActorRef
+import org.apache.flink.api.common.JobID
 import org.apache.flink.runtime.accumulators.AccumulatorSnapshot
 import org.apache.flink.runtime.instance.InstanceID
+import org.apache.flink.runtime.jobgraph.JobVertexID
 
 /**
  * Miscellaneous actor messages exchanged with the TaskManager.
@@ -50,6 +52,11 @@ object TaskManagerMessages {
     def get() : SendHeartbeat.type = SendHeartbeat
   }
 
+  case class HeartbeatTaskMetrics(
+    cpuLoad: Long,
+    numRecordsInRate: Double,
+    numRecordsOutRate: Double)
+
   /**
    * Reports liveliness of the TaskManager instance with the given instance ID to the
    * This message is sent to the job.
@@ -57,7 +64,10 @@ object TaskManagerMessages {
    * @param instanceID The instance ID of the reporting TaskManager.
    * @param accumulators Accumulators of tasks serialized as Tuple2[internal, user-defined]
    */
-  case class Heartbeat(instanceID: InstanceID, accumulators: Seq[AccumulatorSnapshot])
+  case class Heartbeat(
+    instanceID: InstanceID,
+    accumulators: Seq[AccumulatorSnapshot],
+    tasksMetrics: Map[(JobID, JobVertexID, Int), HeartbeatTaskMetrics] = Map.empty)
 
 
   // --------------------------------------------------------------------------

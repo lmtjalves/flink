@@ -42,7 +42,7 @@ public class TaskMetricGroup extends ComponentMetricGroup<TaskManagerJobMetricGr
 	private final Map<String, OperatorMetricGroup> operators = new HashMap<>();
 
 	private final TaskIOMetricGroup ioMetrics;
-	
+
 	/** The execution Id uniquely identifying the executed task represented by this metrics group */
 	private final AbstractID executionId;
 

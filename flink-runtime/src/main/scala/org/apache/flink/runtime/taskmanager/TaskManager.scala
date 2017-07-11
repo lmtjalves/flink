@@ -30,6 +30,7 @@ import _root_.akka.pattern.ask
 import _root_.akka.util.Timeout
 import grizzled.slf4j.Logger
 import org.apache.commons.lang3.exception.ExceptionUtils
+import org.apache.flink.api.common.JobID
 import org.apache.flink.configuration._
 import org.apache.flink.core.fs.FileSystem
 import org.apache.flink.core.memory.{HeapMemorySegment, HybridMemorySegment, MemorySegmentFactory, MemoryType}
@@ -51,6 +52,7 @@ import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool
 import org.apache.flink.runtime.io.network.{LocalConnectionManager, NetworkEnvironment, TaskEventDispatcher}
 import org.apache.flink.runtime.io.network.netty.{NettyConfig, NettyConnectionManager, PartitionProducerStateChecker}
 import org.apache.flink.runtime.io.network.partition.{ResultPartitionConsumableNotifier, ResultPartitionManager}
+import org.apache.flink.runtime.jobgraph.JobVertexID
 import org.apache.flink.runtime.leaderretrieval.{LeaderRetrievalListener, LeaderRetrievalService}
 import org.apache.flink.runtime.memory.MemoryManager
 import org.apache.flink.runtime.messages.{Acknowledge, StackTraceSampleResponse}
@@ -1336,12 +1338,25 @@ class TaskManager(
       val accumulatorEvents =
         scala.collection.mutable.Buffer[AccumulatorSnapshot]()
 
+      val tasksMetrics =
+        scala.collection.mutable.Map[(JobID, JobVertexID, Int), HeartbeatTaskMetrics]()
+
       runningTasks.asScala foreach {
         case (execID, task) =>
           try {
             val registry = task.getAccumulatorRegistry
             val accumulators = registry.getSnapshot
             accumulatorEvents.append(accumulators)
+
+            task.getMetricGroup.getIOMetricGroup.createSnapshot()
+            val taskId = (task.getJobID, task.getJobVertexId, task.getTaskInfo.getIndexOfThisSubtask)
+            val ioMetrics = task.getMetricGroup.getIOMetricGroup.createSnapshot()
+
+            tasksMetrics += taskId -> HeartbeatTaskMetrics(
+              task.getCpuLoad,
+              ioMetrics.getNumRecordsInPerSecond,
+              ioMetrics.getNumRecordsOutPerSecond
+            );
           } catch {
             case e: Exception =>
               log.warn("Failed to take accumulator snapshot for task {}.",
@@ -1349,8 +1364,8 @@ class TaskManager(
           }
       }
 
-       currentJobManager foreach {
-        jm => jm ! decorateMessage(Heartbeat(instanceID, accumulatorEvents))
+      currentJobManager foreach {
+        jm => jm ! decorateMessage(Heartbeat(instanceID, accumulatorEvents, tasksMetrics.toMap))
       }
     }
     catch {

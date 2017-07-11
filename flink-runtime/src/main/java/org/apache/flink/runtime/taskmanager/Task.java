@@ -27,6 +27,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.TaskManagerOptions;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.metrics.Gauge;
 import org.apache.flink.runtime.accumulators.AccumulatorRegistry;
 import org.apache.flink.runtime.blob.BlobKey;
 import org.apache.flink.runtime.broadcast.BroadcastVariableManager;
@@ -70,6 +71,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.net.URL;
 import java.util.Collection;
 import java.util.HashMap;
@@ -244,6 +247,8 @@ public class Task implements Runnable, TaskActions {
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
 	private long taskCancellationTimeout;
 
+	private CpuLoadGauge cpuLoadGauge;
+
 	/**
 	 * <p><b>IMPORTANT:</b> This constructor may not start any work that would need to
 	 * be undone in the case of a failing task deployment.</p>
@@ -381,6 +386,7 @@ public class Task implements Runnable, TaskActions {
 		// finally, create the executing thread, but do not start it
 		executingThread = new Thread(TASK_THREADS_GROUP, this, taskNameWithSubtask);
 
+		this.cpuLoadGauge = new CpuLoadGauge(executingThread);
 		if (this.metrics != null && this.metrics.getIOMetricGroup() != null) {
 			// add metrics for buffers
 			this.metrics.getIOMetricGroup().initializeBufferMetrics(this);
@@ -441,6 +447,10 @@ public class Task implements Runnable, TaskActions {
 
 	public Thread getExecutingThread() {
 		return executingThread;
+	}
+
+	public Long getCpuLoad() {
+		return cpuLoadGauge.getValue();
 	}
 
 	@VisibleForTesting
@@ -1503,6 +1513,32 @@ public class Task implements Runnable, TaskActions {
 					}
 				}
 			}
+		}
+	}
+
+	private class CpuLoadGauge implements Gauge<Long> {
+		private long lastTime = 0L;
+		private long previousCpuTime = 0L;
+		private Thread thread;
+		private ThreadMXBean tmxb = ManagementFactory.getThreadMXBean();
+
+		public CpuLoadGauge(Thread thread) {
+			this.thread = thread;
+		}
+
+		@Override
+		public Long getValue() {
+			tmxb.setThreadCpuTimeEnabled(true);
+
+			long currTime = System.currentTimeMillis();
+			long currentCpuTime = tmxb.getThreadCpuTime(thread.getId()) / 1000000;
+
+			long elapsedTime = currTime - lastTime;
+			long elapsedCpuTime = currentCpuTime - previousCpuTime;
+			long res = 100 * elapsedCpuTime / elapsedTime;
+			lastTime = currTime;
+			previousCpuTime = currentCpuTime;
+			return res;
 		}
 	}
 }

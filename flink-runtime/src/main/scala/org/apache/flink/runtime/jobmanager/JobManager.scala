@@ -1068,12 +1068,14 @@ class JobManager(
         TaskManagerInstance(Option(instanceManager.getRegisteredInstanceById(instanceID)))
       )
 
-    case Heartbeat(instanceID, accumulators) =>
+    case Heartbeat(instanceID, accumulators, tasksMetrics) =>
       log.trace(s"Received heartbeat message from $instanceID.")
 
       updateAccumulators(accumulators)
 
       instanceManager.reportHeartBeat(instanceID)
+
+      log.info("Received metric:" + tasksMetrics)
 
     case message: AccumulatorMessage => handleAccumulatorMessage(message)
 
