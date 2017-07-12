@@ -1349,7 +1349,12 @@ class TaskManager(
             accumulatorEvents.append(accumulators)
 
             task.getMetricGroup.getIOMetricGroup.createSnapshot()
-            val taskId = (task.getJobID, task.getJobVertexId, task.getTaskInfo.getIndexOfThisSubtask)
+            val taskId = (
+              task.getJobID,
+              task.getJobVertexId,
+              task.getTaskInfo.getIndexOfThisSubtask
+            )
+
             val ioMetrics = task.getMetricGroup.getIOMetricGroup.createSnapshot()
 
             tasksMetrics += taskId -> HeartbeatTaskMetrics(
