@@ -89,6 +89,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
+import static org.apache.flink.util.Preconditions.checkArgument;
+
 /**
  * The Task represents one execution of a parallel subtask on a TaskManager.
  * A Task wraps a Flink operator (which may be a user function) and
@@ -281,9 +283,10 @@ public class Task implements Runnable, TaskActions {
 		Preconditions.checkNotNull(jobInformation);
 		Preconditions.checkNotNull(taskInformation);
 
-		Preconditions.checkArgument(0 <= subtaskIndex, "The subtask index must be positive.");
-		Preconditions.checkArgument(0 <= attemptNumber, "The attempt number must be positive.");
-		Preconditions.checkArgument(0 <= targetSlotNumber, "The target slot number must be positive.");
+		checkArgument(0 <= subtaskIndex, "The subtask index must be positive.");
+		checkArgument(0 <= attemptNumber, "The attempt number must be positive.");
+		/* THESIS: This is irrelevant since we now do not consider the slots for scheduling */
+		checkArgument(0 <= targetSlotNumber, "The target slot number must be positive.");
 
 		this.taskInfo = new TaskInfo(
 			taskInformation.getTaskName(),
@@ -502,6 +505,11 @@ public class Task implements Runnable, TaskActions {
 		executingThread.start();
 	}
 
+	public void setSubPartitionNonDropProbability(int partitionId, int subPartitionId, int p) {
+		checkArgument(0 >= partitionId && partitionId < producedPartitions.length,
+			"The partitionId must be between 0 and the amount of partitions - 1");
+		producedPartitions[partitionId].setSubpartitionNonDropProbability(subPartitionId, p);
+	}
 	/**
 	 * The core work method that bootstraps the task and executes it code
 	 */

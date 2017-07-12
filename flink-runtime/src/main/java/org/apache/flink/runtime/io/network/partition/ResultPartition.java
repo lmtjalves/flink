@@ -154,14 +154,14 @@ public class ResultPartition implements BufferPoolOwner {
 		switch (partitionType) {
 			case BLOCKING:
 				for (int i = 0; i < subpartitions.length; i++) {
-					subpartitions[i] = new SpillableSubpartition(i, this, ioManager);
+					subpartitions[i] = new SpillableSubpartition(i, this, 100, ioManager);
 				}
 
 				break;
 
 			case PIPELINED:
 				for (int i = 0; i < subpartitions.length; i++) {
-					subpartitions[i] = new PipelinedSubpartition(i, this);
+					subpartitions[i] = new PipelinedSubpartition(i, this, 100);
 				}
 
 				break;
@@ -235,6 +235,17 @@ public class ResultPartition implements BufferPoolOwner {
 		}
 
 		return totalBuffers;
+	}
+
+	public int getSubpartitionNonDropProbability(int subpartitionIndex) {
+		return subpartitions[subpartitionIndex].getNonDropProbability();
+	}
+
+	public void setSubpartitionNonDropProbability(int subpartitionIndex, int nonDropProbability) {
+		checkArgument(0 >= subpartitionIndex && subpartitionIndex < subpartitions.length,
+			"The subpartitionIndex must be between 0 and the amount of subpartitions - 1");
+
+		subpartitions[subpartitionIndex].setNonDropProbability(nonDropProbability);
 	}
 
 	// ------------------------------------------------------------------------

@@ -403,6 +403,16 @@ class TaskManager(
         case UpdateTaskMultiplePartitionInfos(executionID, partitionInfos) =>
           updateTaskInputPartitions(executionID, partitionInfos)
 
+        case UpdateTaskOutputSubpartitionNonDropProbability(executionId,
+          partitionID,
+          subpartitionId,
+          nonDropProbability) => updateOutputSubpartitionNonDropProbability(
+          executionId,
+          partitionID,
+          subpartitionId,
+          nonDropProbability
+        )
+
         // discards intermediate result partitions of a task execution on this TaskManager
         case FailIntermediateResultPartitions(executionID) =>
           log.info("Discarding the results produced by task execution " + executionID)
@@ -496,6 +506,20 @@ class TaskManager(
           }
       }
       }
+  }
+
+  private def updateOutputSubpartitionNonDropProbability(
+    executionId: ExecutionAttemptID,
+    partitionID: Int,
+    subpartitionId: Int,
+    nonDropProbability: Int
+  ): Unit = Option(runningTasks.get()) match {
+    case Some(task) =>
+      task.setSubPartitionNonDropProbability(partitionID, subpartitionId, nonDropProbability)
+    case None =>
+      log.debug(
+        s"Cannot find task with ID $executionId who's non drop probability must be updated"
+      )
   }
 
   /**
@@ -1108,10 +1132,12 @@ class TaskManager(
         case None => throw new IllegalStateException("There is no valid library cache manager.")
       }
 
+      /* THESIS: Slots are now dynamic, no need to check this
       val slot = tdd.getTargetSlotNumber
       if (slot < 0 || slot >= numberOfSlots) {
         throw new IllegalArgumentException(s"Target slot $slot does not exist on TaskManager.")
       }
+      */
 
       val (checkpointResponder,
         partitionStateChecker,
@@ -1974,11 +2000,13 @@ object TaskManager {
       case true =>
         val port = tmConfig.getInteger(QueryableStateOptions.SERVER_PORT)
 
+        /* THESIS: We are not going to test this, thus remains irrelevant */
         var numNetworkThreads = tmConfig.getInteger(QueryableStateOptions.SERVER_NETWORK_THREADS)
         if (numNetworkThreads == 0) {
           numNetworkThreads = taskManagerConfig.numberOfSlots
         }
 
+        /* THESIS: We are not going to test this, thus remains irrelevant */
         var numQueryThreads = tmConfig.getInteger(QueryableStateOptions.SERVER_ASYNC_QUERY_THREADS)
         if (numQueryThreads == 0) {
           numQueryThreads = taskManagerConfig.numberOfSlots
@@ -2082,6 +2110,7 @@ object TaskManager {
       }
     }
 
+    /* THESIS: Irrelevant since this is not used for stream applications */
     // now start the memory manager
     val memoryManager = try {
       new MemoryManager(
@@ -2206,12 +2235,14 @@ object TaskManager {
 
     // ----> memory / network stack (shuffles/broadcasts), task slots, temp directories
 
+    /* THESIS: Irrelevant */
     // we need this because many configs have been written with a "-1" entry
     val slots = configuration.getInteger(ConfigConstants.TASK_MANAGER_NUM_TASK_SLOTS, 1) match {
       case -1 => 1
       case x => x
     }
 
+    /* THESIS: Irrelevant */
     checkConfigParameter(slots >= 1, slots, ConfigConstants.TASK_MANAGER_NUM_TASK_SLOTS,
       "Number of task slots must be at least one.")
 
@@ -2267,12 +2298,16 @@ object TaskManager {
     val nettyConfig = if (localTaskManagerCommunication) {
       None
     } else {
+      /*THESIS: the slots will determine the amount of threads/arenas for netty, as such,
+       * since we assume the bottleneck occurs when the cpu usage = 100%, we set this to
+       * the number of cores (an higher value will lead to using more resources than needed.
+       */
       Some(
         new NettyConfig(
           taskManagerInetSocketAddress.getAddress(),
           taskManagerInetSocketAddress.getPort(),
           pageSize,
-          slots,
+          Hardware.getNumberCPUCores,
           configuration)
       )
     }

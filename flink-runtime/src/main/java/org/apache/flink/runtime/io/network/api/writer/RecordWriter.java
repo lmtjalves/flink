@@ -54,6 +54,8 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 	private final int numChannels;
 
+	private final Random random;
+
 	/** {@link RecordSerializer} per outgoing channel */
 	private final RecordSerializer<T>[] serializers;
 
@@ -71,6 +73,7 @@ public class RecordWriter<T extends IOReadableWritable> {
 		this.channelSelector = channelSelector;
 
 		this.numChannels = writer.getNumberOfOutputChannels();
+		this.random = new Random();
 
 		/**
 		 * The runtime exposes a channel abstraction for the produced results
@@ -85,7 +88,9 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 	public void emit(T record) throws IOException, InterruptedException {
 		for (int targetChannel : channelSelector.selectChannels(record, numChannels)) {
-			sendToTarget(record, targetChannel);
+			if(random.nextInt(100) < targetPartition.getChannelNonDropProbability(targetChannel)) {
+				sendToTarget(record, targetChannel);
+			}
 		}
 	}
 
