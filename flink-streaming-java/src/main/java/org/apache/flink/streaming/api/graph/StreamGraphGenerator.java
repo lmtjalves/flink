@@ -471,6 +471,8 @@ public class StreamGraphGenerator {
 
 		streamGraph.setParallelism(sink.getId(), sink.getParallelism());
 		streamGraph.setMaxParallelism(sink.getId(), sink.getMaxParallelism());
+		streamGraph.setPriority(sink.getId(), sink.getPriority());
+		streamGraph.setAccuracy(sink.getId(), sink.getAccuracy());
 
 		for (Integer inputId: inputIds) {
 			streamGraph.addEdge(inputId,

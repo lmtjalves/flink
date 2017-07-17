@@ -473,6 +473,18 @@ public class StreamGraph extends StreamingPlan {
 		}
 	}
 
+	public void setPriority(int vertexID, int priority) {
+		if (getStreamNode(vertexID) != null) {
+			getStreamNode(vertexID).setPriority(priority);
+		}
+	}
+
+	public void setAccuracy(int vertexID, int accuracy) {
+		if (getStreamNode(vertexID) != null) {
+			getStreamNode(vertexID).setAccuracy(accuracy);
+		}
+	}
+
 	public StreamNode getStreamNode(Integer vertexID) {
 		return streamNodes.get(vertexID);
 	}

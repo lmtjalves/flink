@@ -71,6 +71,9 @@ public class StreamNode implements Serializable {
 	private String transformationUID;
 	private String userHash;
 
+	private int priority;
+	private int accuracy;
+
 	public StreamNode(StreamExecutionEnvironment env,
 		Integer id,
 		String slotSharingGroup,
@@ -163,6 +166,14 @@ public class StreamNode implements Serializable {
 	 */
 	void setMaxParallelism(int maxParallelism) {
 		this.maxParallelism = maxParallelism;
+	}
+
+	void setPriority(int priority) {
+		this.priority = priority;
+	}
+
+	void setAccuracy(int accuracy) {
+		this.accuracy = accuracy;
 	}
 
 	public Long getBufferTimeout() {
