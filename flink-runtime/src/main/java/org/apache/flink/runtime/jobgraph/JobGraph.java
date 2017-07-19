@@ -106,6 +106,11 @@ public class JobGraph implements Serializable {
 	/** Savepoint restore settings. */
 	private SavepointRestoreSettings savepointRestoreSettings = SavepointRestoreSettings.none();
 
+	// We also need to keep some information regarding the logic graph
+	// - We need to keep the operators (priority/accuracy/cpu usage).
+	// - We need to keep the connections between the operators.
+	
+
 	// --------------------------------------------------------------------------------------------
 
 	/**
