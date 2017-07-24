@@ -168,11 +168,19 @@ public class StreamNode implements Serializable {
 		this.maxParallelism = maxParallelism;
 	}
 
-	void setPriority(int priority) {
+	public int getPriority() {
+		return priority;
+	}
+
+	public void setPriority(int priority) {
 		this.priority = priority;
 	}
 
-	void setAccuracy(int accuracy) {
+	public int getAccuracy() {
+		return accuracy;
+	}
+
+	public void setAccuracy(int accuracy) {
 		this.accuracy = accuracy;
 	}
 

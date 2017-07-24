@@ -55,7 +55,8 @@ object TaskManagerMessages {
   case class HeartbeatTaskMetrics(
     cpuLoad: Long,
     numRecordsInRate: Double,
-    numRecordsOutRate: Double)
+    numRecordsOutRate: Double
+  )
 
   /**
    * Reports liveliness of the TaskManager instance with the given instance ID to the

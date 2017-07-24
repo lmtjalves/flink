@@ -61,7 +61,7 @@ import org.apache.flink.runtime.messages.JobManagerMessages._
 import org.apache.flink.runtime.messages.Messages.Disconnect
 import org.apache.flink.runtime.messages.RegistrationMessages._
 import org.apache.flink.runtime.messages.{Acknowledge, StackTrace}
-import org.apache.flink.runtime.messages.TaskManagerMessages.Heartbeat
+import org.apache.flink.runtime.messages.TaskManagerMessages.{Heartbeat, SendHeartbeat}
 import org.apache.flink.runtime.messages.TaskMessages.UpdateTaskExecutionState
 import org.apache.flink.runtime.messages.accumulators._
 import org.apache.flink.runtime.messages.checkpoint.{AbstractCheckpointMessage, AcknowledgeCheckpoint, DeclineCheckpoint}
@@ -140,7 +140,7 @@ class JobManager(
 
   /** Either running or not yet archived jobs (session hasn't been ended). */
   protected val currentJobs =
-    scala.collection.mutable.HashMap[JobID, (JobGraph, ExecutionGraph, JobInfo)]()
+    scala.collection.mutable.HashMap[JobID, (ExecutionGraph, JobInfo)]()
 
   protected val haMode = HighAvailabilityMode.fromConfig(flinkConfiguration)
 
@@ -180,6 +180,9 @@ class JobManager(
   var currentResourceManager: Option[ActorRef] = None
 
   val taskManagerMap = mutable.Map[ActorRef, InstanceID]()
+
+  /** Sends a message to the JobManager itself for it to update the load shedders. */
+  private var loadSheddingTunnerScheduler: Option[Cancellable] = None
 
   /**
    * Run when the job manager is started. Simply logs an informational message.
@@ -289,6 +292,8 @@ class JobManager(
    * @return
    */
   override def handleMessage: Receive = {
+    case LoadSheddingMessage =>
+      tuneLoadShedders()
 
     case GrantLeadership(newLeaderSessionID) =>
       log.info(s"JobManager $getAddress was granted leadership with leader session ID " +
@@ -311,10 +316,26 @@ class JobManager(
             decorateMessage(RecoverAllJobs))(
             context.dispatcher)
         }
+
+        // schedule regular load shedding message for itself
+        loadSheddingTunnerScheduler = Some(
+          context.system.scheduler.schedule(
+            JobManager.LOAD_SHEDDING_INTERVAL,
+            JobManager.LOAD_SHEDDING_INTERVAL,
+            self,
+            decorateMessage(LoadSheddingMessage)
+          )(context.dispatcher)
+        )
       }(context.dispatcher)
 
     case RevokeLeadership =>
       log.info(s"JobManager ${self.path.toSerializationFormat} was revoked leadership.")
+
+      // Stop the load shedding scheduler
+      loadSheddingTunnerScheduler foreach {
+        _.cancel()
+      }
+      loadSheddingTunnerScheduler = None
 
       val newFuturesToComplete = cancelAndClearEverything(
         new Exception("JobManager is no longer the leader."))
@@ -480,7 +501,7 @@ class JobManager(
     case RegisterJobClient(jobID, listeningBehaviour) =>
       val client = sender()
       currentJobs.get(jobID) match {
-        case Some((_, executionGraph, jobInfo)) =>
+        case Some((executionGraph, jobInfo)) =>
           log.info(s"Registering client for job $jobID")
           jobInfo.clients += ((client, listeningBehaviour))
           val listener = new StatusListenerMessenger(client, leaderSessionID.orNull)
@@ -563,7 +584,7 @@ class JobManager(
       log.info(s"Trying to cancel job with ID $jobID.")
 
       currentJobs.get(jobID) match {
-        case Some((_, executionGraph, _)) =>
+        case Some((executionGraph, _)) =>
           // execute the cancellation asynchronously
           Future {
             executionGraph.cancel()
@@ -599,7 +620,7 @@ class JobManager(
           log.info(s"Trying to cancel job $jobId with savepoint to $targetDirectory")
 
           currentJobs.get(jobId) match {
-            case Some((_, executionGraph, _)) =>
+            case Some((executionGraph, _)) =>
               // We don't want any checkpoint between the savepoint and cancellation
               val coord = executionGraph.getCheckpointCoordinator
               coord.stopCheckpointScheduler()
@@ -649,7 +670,7 @@ class JobManager(
       log.info(s"Trying to stop job with ID $jobID.")
 
       currentJobs.get(jobID) match {
-        case Some((_, executionGraph, _)) =>
+        case Some((executionGraph, _)) =>
           try {
             if (!executionGraph.isStoppable()) {
               sender ! decorateMessage(
@@ -686,7 +707,7 @@ class JobManager(
         sender ! decorateMessage(false)
       } else {
         currentJobs.get(taskExecutionState.getJobID) match {
-          case Some((_, executionGraph, _)) =>
+          case Some(( executionGraph, _)) =>
             val originalSender = sender()
 
             Future {
@@ -703,7 +724,7 @@ class JobManager(
 
     case RequestNextInputSplit(jobID, vertexID, executionAttempt) =>
       val serializedInputSplit = currentJobs.get(jobID) match {
-        case Some((_, executionGraph,_)) =>
+        case Some(( executionGraph,_)) =>
           val execution = executionGraph.getRegisteredExecutions.get(executionAttempt)
 
           if (execution == null) {
@@ -761,7 +782,7 @@ class JobManager(
 
     case TriggerSavepoint(jobId, savepointDirectory) =>
       currentJobs.get(jobId) match {
-        case Some((_, graph, _)) =>
+        case Some((graph, _)) =>
           val checkpointCoordinator = graph.getCheckpointCoordinator()
 
           if (checkpointCoordinator != null) {
@@ -846,7 +867,7 @@ class JobManager(
 
     case msg @ JobStatusChanged(jobID, newJobStatus, timeStamp, error) =>
       currentJobs.get(jobID) match {
-        case Some((_, executionGraph, jobInfo)) => executionGraph.getJobName
+        case Some((executionGraph, jobInfo)) => executionGraph.getJobName
 
           if (newJobStatus.isGloballyTerminalState()) {
             jobInfo.end = timeStamp
@@ -924,7 +945,7 @@ class JobManager(
 
     case ScheduleOrUpdateConsumers(jobId, partitionId) =>
       currentJobs.get(jobId) match {
-        case Some((_, executionGraph, _)) =>
+        case Some((executionGraph, _)) =>
           try {
             executionGraph.scheduleOrUpdateConsumers(partitionId)
             sender ! decorateMessage(Acknowledge.get())
@@ -947,7 +968,7 @@ class JobManager(
 
     case RequestPartitionProducerState(jobId, intermediateDataSetId, resultPartitionId) =>
       currentJobs.get(jobId) match {
-        case Some((_, executionGraph, _)) =>
+        case Some((executionGraph, _)) =>
           try {
             // Find the execution attempt producing the intermediate result partition.
             val execution = executionGraph
@@ -999,7 +1020,7 @@ class JobManager(
 
     case RequestJobStatus(jobID) =>
       currentJobs.get(jobID) match {
-        case Some((_, executionGraph,_)) =>
+        case Some((executionGraph,_)) =>
           sender ! decorateMessage(CurrentJobStatus(jobID, executionGraph.getState))
         case None =>
           // check the archive
@@ -1008,7 +1029,7 @@ class JobManager(
 
     case RequestRunningJobs =>
       val executionGraphs = currentJobs map {
-        case (_, (_, eg, _)) => eg
+        case (_, (eg, _)) => eg
       }
 
       sender ! decorateMessage(RunningJobs(executionGraphs))
@@ -1016,7 +1037,7 @@ class JobManager(
     case RequestRunningJobsStatus =>
       try {
         val jobs = currentJobs map {
-          case (_, (_, eg, _)) =>
+          case (_, (eg, _)) =>
             new JobStatusMessage(
               eg.getJobID,
               eg.getJobName,
@@ -1033,7 +1054,7 @@ class JobManager(
 
     case RequestJob(jobID) =>
       currentJobs.get(jobID) match {
-        case Some((_, eg, _)) => sender ! decorateMessage(JobFound(jobID, eg))
+        case Some((eg, _)) => sender ! decorateMessage(JobFound(jobID, eg))
         case None =>
           // check the archive
           archive forward decorateMessage(RequestJob(jobID))
@@ -1041,7 +1062,7 @@ class JobManager(
 
     case RequestClassloadingProps(jobID) =>
       currentJobs.get(jobID) match {
-        case Some((_, graph, _)) =>
+        case Some((graph, _)) =>
           sender() ! decorateMessage(
             ClassloadingProps(
               libraryCacheManager.getBlobServerPort,
@@ -1078,6 +1099,19 @@ class JobManager(
 
       log.info("Received metric:" + tasksMetrics)
 
+      // Update all the metrics that we store per task
+      tasksMetrics.foreach { case (identifier, metric) =>
+        currentJobs.get(identifier._1).map { case (executionGraph, _) =>
+          executionGraph.setMetrics(
+            identifier._2,
+            identifier._3,
+            metric.cpuLoad,
+            metric.numRecordsInRate,
+            metric.numRecordsOutRate
+          )
+        }
+      }
+
     case message: AccumulatorMessage => handleAccumulatorMessage(message)
 
     case message: InfoMessage => handleInfoRequestMessage(message, sender())
@@ -1111,7 +1145,7 @@ class JobManager(
 
     case RemoveJob(jobID, clearPersistedJob) =>
       currentJobs.get(jobID) match {
-        case Some((_, graph, info)) =>
+        case Some((graph, info)) =>
             removeJob(graph.getJobID, clearPersistedJob) match {
               case Some(futureToComplete) =>
                 futuresToComplete = Some(futuresToComplete.getOrElse(Seq()) :+ futureToComplete)
@@ -1122,7 +1156,7 @@ class JobManager(
 
     case RemoveCachedJob(jobID) =>
       currentJobs.get(jobID) match {
-        case Some((_, graph, info)) =>
+        case Some((graph, info)) =>
           if (graph.getState.isGloballyTerminalState) {
             removeJob(graph.getJobID, removeJobFromStateBackend = true) match {
               case Some(futureToComplete) =>
@@ -1184,6 +1218,13 @@ class JobManager(
 
     case RequestWebMonitorPort =>
       sender() ! ResponseWebMonitorPort(webMonitorPort)
+  }
+
+  /**
+   * Re-tunes all the load shedders in the current executing jobs.
+   */
+  private def tuneLoadShedders(): Unit = {
+    // TODO
   }
 
   /**
@@ -1276,7 +1317,7 @@ class JobManager(
 
         // see if there already exists an ExecutionGraph for the corresponding job ID
         val registerNewGraph = currentJobs.get(jobGraph.getJobID) match {
-          case Some((_, graph, currentJobInfo)) =>
+          case Some((graph, currentJobInfo)) =>
             executionGraph = graph
             currentJobInfo.setLastActive()
             false
@@ -1299,7 +1340,7 @@ class JobManager(
           log.logger)
         
         if (registerNewGraph) {
-          currentJobs.put(jobGraph.getJobID, (jobGraph, executionGraph, jobInfo))
+          currentJobs.put(jobGraph.getJobID, (executionGraph, jobInfo))
         }
 
         // get notified about job status changes
@@ -1439,7 +1480,7 @@ class JobManager(
       case ackMessage: AcknowledgeCheckpoint =>
         val jid = ackMessage.getJob()
         currentJobs.get(jid) match {
-          case Some((_, graph, _)) =>
+          case Some((graph, _)) =>
             val checkpointCoordinator = graph.getCheckpointCoordinator()
 
             if (checkpointCoordinator != null) {
@@ -1468,7 +1509,7 @@ class JobManager(
       case declineMessage: DeclineCheckpoint =>
         val jid = declineMessage.getJob()
         currentJobs.get(jid) match {
-          case Some((_, graph, _)) =>
+          case Some((graph, _)) =>
             val checkpointCoordinator = graph.getCheckpointCoordinator()
 
             if (checkpointCoordinator != null) {
@@ -1507,7 +1548,7 @@ class JobManager(
       // Client KvStateLocation lookup
       case msg: LookupKvStateLocation =>
         currentJobs.get(msg.getJobId) match {
-          case Some((_, graph, _)) =>
+          case Some((graph, _)) =>
             try {
               log.debug(s"Lookup key-value state for job ${msg.getJobId} with registration " +
                          s"name ${msg.getRegistrationName}.")
@@ -1531,7 +1572,7 @@ class JobManager(
       // TaskManager KvState registration
       case msg: NotifyKvStateRegistered =>
         currentJobs.get(msg.getJobId) match {
-          case Some((_, graph, _)) =>
+          case Some((graph, _)) =>
             try {
               log.debug(s"Key value state registered for job ${msg.getJobId} under " +
                          s"name ${msg.getRegistrationName}.")
@@ -1553,7 +1594,7 @@ class JobManager(
       // TaskManager KvState unregistration
       case msg: NotifyKvStateUnregistered =>
         currentJobs.get(msg.getJobId) match {
-          case Some((_, graph, _)) =>
+          case Some((graph, _)) =>
             try {
               graph.getKvStateLocationRegistry.notifyKvStateUnregistered(
                 msg.getJobVertexId,
@@ -1589,7 +1630,7 @@ class JobManager(
       case RequestAccumulatorResults(jobID) =>
         try {
           currentJobs.get(jobID) match {
-            case Some((_, graph, _)) =>
+            case Some((graph, _)) =>
               val accumulatorValues = graph.getAccumulatorsSerialized()
               sender() ! decorateMessage(AccumulatorResultsFound(jobID, accumulatorValues))
             case None =>
@@ -1603,7 +1644,7 @@ class JobManager(
 
       case RequestAccumulatorResultsStringified(jobId) =>
         currentJobs.get(jobId) match {
-          case Some((_, graph, _)) =>
+          case Some((graph, _)) =>
             val stringifiedAccumulators = graph.getAccumulatorResultsStringified()
             sender() ! decorateMessage(
               AccumulatorResultStringsFound(jobId, stringifiedAccumulators)
@@ -1673,7 +1714,7 @@ class JobManager(
           
           val ourDetails: Array[JobDetails] = if (msg.shouldIncludeRunning()) {
             currentJobs.values.map {
-              v => WebMonitorUtils.createDetailsForJob(v._2)
+              v => WebMonitorUtils.createDetailsForJob(v._1)
             }.toArray[JobDetails]
           } else {
             null
@@ -1704,7 +1745,7 @@ class JobManager(
     var failed = 0
 
     currentJobs.values.foreach {
-      _._2.getState() match {
+      _._1.getState() match {
         case JobStatus.FINISHED => finished += 1
         case JobStatus.CANCELED => canceled += 1
         case JobStatus.FAILED => failed += 1
@@ -1721,7 +1762,7 @@ class JobManager(
     val canceled = new java.util.ArrayList[JobID]()
     val failed = new java.util.ArrayList[JobID]()
     
-    currentJobs.values.foreach { case (_, graph, _) =>
+    currentJobs.values.foreach { case (graph, _) =>
       graph.getState() match {
         case JobStatus.FINISHED => finished.add(graph.getJobID)
         case JobStatus.CANCELED => canceled.add(graph.getJobID)
@@ -1746,7 +1787,7 @@ class JobManager(
   private def removeJob(jobID: JobID, removeJobFromStateBackend: Boolean): Option[Future[Unit]] = {
     // Don't remove the job yet...
     val futureOption = currentJobs.get(jobID) match {
-      case Some((_, eg, _)) =>
+      case Some((eg, _)) =>
         val result = if (removeJobFromStateBackend) {
           val futureOption = Some(future {
             try {
@@ -1794,7 +1835,7 @@ class JobManager(
     */
   private def cancelAndClearEverything(cause: Throwable)
     : Seq[Future[Unit]] = {
-    val futures = for ((jobID, (_, eg, jobInfo)) <- currentJobs) yield {
+    val futures = for ((jobID, (eg, jobInfo)) <- currentJobs) yield {
       future {
         eg.suspend(cause)
 
@@ -1830,7 +1871,7 @@ class JobManager(
         job =>
           future {
             // Fail the execution graph
-            job._2.fail(new IllegalStateException("Another JobManager removed the job from " +
+            job._1.fail(new IllegalStateException("Another JobManager removed the job from " +
               "ZooKeeper."))
           }(context.dispatcher)
       )
@@ -1861,7 +1902,7 @@ class JobManager(
     accumulators.foreach( snapshot => {
         if (snapshot != null) {
           currentJobs.get(snapshot.getJobID) match {
-            case Some((_, jobGraph, _)) =>
+            case Some((jobGraph, _)) =>
               future {
                 jobGraph.updateAccumulators(snapshot)
               }(context.dispatcher)
@@ -1921,6 +1962,8 @@ object JobManager {
 
   /** Name of the archive actor */
   val ARCHIVE_NAME = "archive"
+
+  val LOAD_SHEDDING_INTERVAL: FiniteDuration = 5000 milliseconds
 
 
   /**

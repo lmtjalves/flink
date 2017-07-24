@@ -311,6 +311,8 @@ public class StreamingJobGraphGenerator {
 		}
 
 		jobVertex.setMaxParallelism(streamNode.getMaxParallelism());
+		jobVertex.setAccuracy(streamNode.getAccuracy());
+		jobVertex.setPriority(streamNode.getPriority());
 
 		if (LOG.isDebugEnabled()) {
 			LOG.debug("Parallelism set: {} for {}", parallelism, streamNodeId);

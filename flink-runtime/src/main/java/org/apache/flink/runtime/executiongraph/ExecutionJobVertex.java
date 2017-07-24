@@ -185,7 +185,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		try {
 			@SuppressWarnings("unchecked")
 			InputSplitSource<InputSplit> splitSource = (InputSplitSource<InputSplit>) jobVertex.getInputSplitSource();
-			
+
 			if (splitSource != null) {
 				Thread currentThread = Thread.currentThread();
 				ClassLoader oldContextClassLoader = currentThread.getContextClassLoader();
@@ -227,6 +227,36 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 						KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM + "), found:" + maxParallelism);
 
 		this.maxParallelism = maxParallelism;
+	}
+
+	/**
+	 * As defined in equation (6) the cpu load of a task corresponds to the maximum cpu load of it's
+	 * task instance at the current instant.
+	 */
+	public long getCpuLoad() {
+		long maxCpu = 0;
+
+		for(int i = 0; i < taskVertices.length; i++) {
+			maxCpu = Math.max(maxCpu, taskVertices[i].getCpuLoad());
+		}
+
+		return maxCpu;
+	}
+
+	/**
+	 * Allows to set the cpu load of a specific task instance.
+	 * @param vertexId
+	 * @param cpuLoad
+	 */
+	public void setMetrics(
+		int vertexId,
+		long cpuLoad,
+		Double numRecordsInRate,
+		Double numRecordsOutRate
+	) {
+		if(vertexId >= 0 && vertexId < taskVertices.length) {
+			taskVertices[vertexId].setMetrics(cpuLoad, numRecordsInRate, numRecordsOutRate);
+		}
 	}
 
 	public ExecutionGraph getGraph() {

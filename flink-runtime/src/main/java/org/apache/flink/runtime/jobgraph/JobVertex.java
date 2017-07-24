@@ -96,6 +96,9 @@ public class JobVertex implements java.io.Serializable {
 	 * to be included in the JSON plan */
 	private String resultOptimizerProperties;
 
+	private int priority;
+	private int accuracy;
+
 	// --------------------------------------------------------------------------------------------
 
 	/**
@@ -276,6 +279,22 @@ public class JobVertex implements java.io.Serializable {
 	 */
 	public void setMaxParallelism(int maxParallelism) {
 		this.maxParallelism = maxParallelism;
+	}
+
+	public int getPriority() {
+		return priority;
+	}
+
+	public void setPriority(int priority) {
+		this.priority = priority;
+	}
+
+	public int getAccuracy() {
+		return accuracy;
+	}
+
+	public void setAccuracy(int accuracy) {
+		this.accuracy = accuracy;
 	}
 
 	public InputSplitSource<?> getInputSplitSource() {

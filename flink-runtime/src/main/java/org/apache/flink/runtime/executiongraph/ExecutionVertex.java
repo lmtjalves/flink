@@ -96,6 +96,13 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	private volatile boolean scheduleLocalOnly;
 
+	private long cpuLoad;
+
+	private Double numRecordsInRate;
+
+	private Double numRecordsOutRate;
+
+
 	// --------------------------------------------------------------------------------------------
 
 	public ExecutionVertex(
@@ -164,12 +171,31 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		}
 
 		this.timeout = timeout;
+
+		// Let's at the beginning that this is the subtask cpuLoad
+		this.cpuLoad = 100;
+		this.numRecordsInRate = new Double(0);
+		this.numRecordsOutRate = new Double(0);
 	}
 
 
 	// --------------------------------------------------------------------------------------------
 	//  Properties
 	// --------------------------------------------------------------------------------------------
+
+	public long getCpuLoad() {
+		return this.cpuLoad;
+	}
+
+	public void setMetrics(
+		long cpuLoad,
+		Double numRecordsInRate,
+		Double numRecordsOutRate
+	) {
+		this.cpuLoad = cpuLoad;
+		this.numRecordsInRate = numRecordsInRate;
+		this.numRecordsOutRate = numRecordsOutRate;
+	}
 
 	public JobID getJobId() {
 		return this.jobVertex.getJobId();

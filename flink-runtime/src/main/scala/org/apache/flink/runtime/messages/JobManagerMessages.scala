@@ -467,6 +467,8 @@ object JobManagerMessages {
   /** Request for the [[org.apache.flink.runtime.webmonitor.WebMonitor]] port. */
   case object RequestWebMonitorPort
 
+  case object LoadSheddingMessage
+
   /**
    * Response containing the [[org.apache.flink.runtime.webmonitor.WebMonitor]] port.
    *

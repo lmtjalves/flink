@@ -211,7 +211,7 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 
 	// ------ Fields that are only relevant for archived execution graphs ------------
 	private String jsonPlan;
-
+	
 	// --------------------------------------------------------------------------------------------
 	//   Constructors
 	// --------------------------------------------------------------------------------------------
@@ -548,6 +548,16 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 	@Override
 	public Map<JobVertexID, ExecutionJobVertex> getAllVertices() {
 		return Collections.unmodifiableMap(this.tasks);
+	}
+
+	public void setMetrics(
+		JobVertexID jobVertex,
+		int vertexId,
+		long cpuLoad,
+		Double numRecordsInRate,
+		Double numRecordsOutRate
+	) {
+		this.tasks.get(jobVertex).setMetrics(vertexId, cpuLoad, numRecordsInRate, numRecordsOutRate);
 	}
 
 	@Override
