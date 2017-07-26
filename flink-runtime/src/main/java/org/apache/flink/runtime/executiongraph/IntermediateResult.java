@@ -56,6 +56,8 @@ public class IntermediateResult {
 
 	private final ResultPartitionType resultType;
 
+	private int nonDropProbability;
+
 	public IntermediateResult(
 			IntermediateDataSetID id,
 			ExecutionJobVertex producer,
@@ -80,6 +82,8 @@ public class IntermediateResult {
 
 		// The runtime type for this produced result
 		this.resultType = checkNotNull(resultType);
+
+		this.nonDropProbability = 100;
 	}
 
 	public void setPartition(int partitionNumber, IntermediateResultPartition partition) {
@@ -106,6 +110,14 @@ public class IntermediateResult {
 
 	public IntermediateResultPartition[] getPartitions() {
 		return partitions;
+	}
+
+	public int getNonDropProbability() {
+		return nonDropProbability;
+	}
+
+	public void setNonDropProbability(int p) {
+		nonDropProbability = p;
 	}
 
 	/**
