@@ -237,15 +237,10 @@ public class ResultPartition implements BufferPoolOwner {
 		return totalBuffers;
 	}
 
-	public int getSubpartitionNonDropProbability(int subpartitionIndex) {
-		return subpartitions[subpartitionIndex].getNonDropProbability();
-	}
-
-	public void setSubpartitionNonDropProbability(int subpartitionIndex, int nonDropProbability) {
-		checkArgument(0 >= subpartitionIndex && subpartitionIndex < subpartitions.length,
-			"The subpartitionIndex must be between 0 and the amount of subpartitions - 1");
-
-		subpartitions[subpartitionIndex].setNonDropProbability(nonDropProbability);
+	public void setPartitionNonDropProbability(int nonDropProbability) {
+		for(int i = 0; i < subpartitions.length; i++) {
+			subpartitions[i].setNonDropProbability(nonDropProbability);
+		}
 	}
 
 	// ------------------------------------------------------------------------

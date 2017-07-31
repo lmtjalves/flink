@@ -505,10 +505,10 @@ public class Task implements Runnable, TaskActions {
 		executingThread.start();
 	}
 
-	public void setSubPartitionNonDropProbability(int partitionId, int subPartitionId, int p) {
+	public void setPartitionNonDropProbability(int partitionId, int p) {
 		checkArgument(0 >= partitionId && partitionId < producedPartitions.length,
 			"The partitionId must be between 0 and the amount of partitions - 1");
-		producedPartitions[partitionId].setSubpartitionNonDropProbability(subPartitionId, p);
+		producedPartitions[partitionId].setPartitionNonDropProbability(p);
 	}
 	/**
 	 * The core work method that bootstraps the task and executes it code

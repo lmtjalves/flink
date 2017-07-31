@@ -21,6 +21,9 @@ package org.apache.flink.runtime.executiongraph;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.jobmanager.slots.ActorTaskManagerGateway;
+import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
+import org.apache.flink.runtime.messages.TaskMessages;
 
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,6 +34,8 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 public class IntermediateResult {
 
 	private final IntermediateDataSetID id;
+
+	private final int offsetId;
 
 	private final ExecutionJobVertex producer;
 
@@ -60,11 +65,13 @@ public class IntermediateResult {
 
 	public IntermediateResult(
 			IntermediateDataSetID id,
+			int offsetId,
 			ExecutionJobVertex producer,
 			int numParallelProducers,
 			ResultPartitionType resultType) {
 
 		this.id = checkNotNull(id);
+		this.offsetId = offsetId;
 		this.producer = checkNotNull(producer);
 
 		checkArgument(numParallelProducers >= 1);

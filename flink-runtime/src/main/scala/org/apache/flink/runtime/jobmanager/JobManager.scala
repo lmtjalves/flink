@@ -1225,6 +1225,8 @@ class JobManager(
    */
   private def tuneLoadShedders(): Unit = {
     // TODO
+    val vertices = currentJobs.values.map(_._1.getAllVertices.get(""))
+    vertices.tail
   }
 
   /**

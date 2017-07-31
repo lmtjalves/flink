@@ -71,6 +71,9 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	private final IntermediateResult[] producedDataSets;
 	
 	private final List<IntermediateResult> inputs;
+
+	// Returns the intermidiate result given it's producer ID
+	private final HashMap<JobVertexID, IntermediateResult> inputsLookup;
 	
 	private final int parallelism;
 
@@ -138,6 +141,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		this.taskVertices = new ExecutionVertex[numTaskVertices];
 		
 		this.inputs = new ArrayList<>(jobVertex.getInputs().size());
+		this.inputsLookup = new HashMap<>(jobVertex.getInputs().size());
 		
 		// take the sharing group
 		this.slotSharingGroup = jobVertex.getSlotSharingGroup();
@@ -156,6 +160,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 			this.producedDataSets[i] = new IntermediateResult(
 					result.getId(),
+					i,
 					this,
 					numTaskVertices,
 					result.getResultType());
@@ -212,7 +217,6 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	}
 
 	public void setMaxParallelism(int maxParallelismDerived) {
-
 		Preconditions.checkState(!maxParallelismConfigured,
 				"Attempt to override a configured max parallelism. Configured: " + this.maxParallelism
 						+ ", argument: " + maxParallelismDerived);
@@ -229,18 +233,72 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		this.maxParallelism = maxParallelism;
 	}
 
+	public void setInputIntermidiateResultNonDropProbability(
+		JobVertexID producerId,
+		int p
+	) {
+		inputsLookup.get(producerId).setNonDropProbability(p);
+	}
+
 	/**
 	 * As defined in equation (6) the cpu load of a task corresponds to the maximum cpu load of it's
 	 * task instance at the current instant.
 	 */
-	public long getCpuLoad() {
+	public int getCpuLoad() {
 		long maxCpu = 0;
 
 		for(int i = 0; i < taskVertices.length; i++) {
 			maxCpu = Math.max(maxCpu, taskVertices[i].getCpuLoad());
 		}
 
-		return maxCpu;
+		return (int) maxCpu;
+	}
+
+	/**
+	 * The accuracy that would be provided if the load shedder was tuned in such way that the throughput
+	 * of the task is maximized, i.e. the amount of input tuples equals the amount of output tuples.
+	 */
+	public int getCurrAc() {
+		int minCurrAc = 100;
+		for(int i = 0; i < taskVertices.length; i++) {
+			Double throughput = taskVertices[i].getThroughput();
+			minCurrAc = Math.min(minCurrAc, (int)(ac() / (1 / throughput)));
+		}
+
+		return minCurrAc;
+	}
+
+	/**
+	 * The minimum accuracy that must be guaranteed.
+	 */
+	public int minAc() {
+		return jobVertex.getAccuracy();
+	}
+
+	/**
+	 * The priority of the task.
+	 */
+	public int priority() {
+		return jobVertex.getPriority();
+	}
+
+	public int reqCpu(int wantedAc) {
+		return Math.min((wantedAc * getCpuLoad()) / ac(), 100);
+	}
+
+	public int obtainedAc(int wantedCpu) {
+		return Math.min((wantedCpu * ac()) / getCpuLoad(), 100);
+	}
+
+	public int ac() {
+		int ac = 100;
+
+		// Optimization, by definition, we only need to follow one of the top branches
+		if (inputs.size() == 0){
+			return ac; // It's a source
+		} else {
+			return inputs.get(0).getNonDropProbability() * inputs.get(0).getProducer().ac();
+		}
 	}
 
 	/**
@@ -402,6 +460,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			}
 			
 			this.inputs.add(ires);
+			this.inputsLookup.put(ires.getProducer().getJobVertexId(), ires);
 			
 			int consumerIndex = ires.registerConsumer();
 			

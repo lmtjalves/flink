@@ -132,7 +132,6 @@ object TaskMessages {
   case class UpdateTaskOutputSubpartitionNonDropProbability(
      executionId: ExecutionAttemptID,
      partitionID: Int,
-     subpartitionId: Int,
      nonDropProbability: Int
   ) extends TaskMessage
 

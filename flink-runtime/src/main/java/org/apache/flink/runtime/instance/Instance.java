@@ -18,15 +18,12 @@
 
 package org.apache.flink.runtime.instance;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
+import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotAvailabilityListener;
 import org.apache.flink.runtime.jobmanager.slots.SlotOwner;
 import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
@@ -35,6 +32,7 @@ import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.collection.mutable.HashTable;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -80,6 +78,10 @@ public class Instance implements SlotOwner {
 	/** Flag marking the instance as alive or as dead. */
 	private volatile boolean isDead;
 
+	private int cpuLoad;
+
+	// priority -> List of tasks
+	private HashMap<Integer, HashSet<ExecutionVertex>> tasks;
 
 	// --------------------------------------------------------------------------------------------
 
@@ -108,6 +110,8 @@ public class Instance implements SlotOwner {
 		for (int i = 0; i < numberOfSlots; i++) {
 			this.availableSlots.add(i);
 		}
+
+		this.tasks = new HashMap<>();
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -128,6 +132,25 @@ public class Instance implements SlotOwner {
 
 	public int getTotalNumberOfSlots() {
 		return numberOfSlots;
+	}
+
+	/**
+	 * Amount of cpu load provided by the machine.
+	 */
+	public int numCpuCores() {
+		return resources.getNumberOfCPUCores();
+	}
+
+	/**
+	 * Returns the amount of tasks the instance is running with the given priority.
+	 * @param priority
+	 * @return
+	 */
+	public int numTasksWithPriority(int priority) {
+		HashSet<ExecutionVertex> priorityTasks = tasks.get(priority);
+
+		if(priorityTasks == null) return 0;
+		else return priorityTasks.size();
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -239,6 +262,23 @@ public class Instance implements SlotOwner {
 		}
 	}
 
+	public void addTask(ExecutionVertex task) {
+		int priority = task.getJobVertex().priority();
+		HashSet<ExecutionVertex> priorityTasks = tasks.get(priority);
+
+		if(priorityTasks == null) {
+			priorityTasks = new HashSet<ExecutionVertex>();
+			tasks.put(priority, priorityTasks);
+		}
+
+		priorityTasks.add(task);
+	}
+
+	public void removeTask(ExecutionVertex task) {
+		HashSet<ExecutionVertex> priorityTasks = tasks.get(task.getJobVertex().priority());
+		if(priorityTasks != null) priorityTasks.remove(task);
+	}
+
 	/**
 	 * Allocates a shared slot on this TaskManager instance. This method returns {@code null}, if no slot
 	 * is available at the moment. The shared slot will be managed by the given  SlotSharingGroupAssignment.
@@ -324,6 +364,7 @@ public class Instance implements SlotOwner {
 		List<Slot> copy;
 		synchronized (instanceLock) {
 			copy = new ArrayList<Slot>(this.allocatedSlots);
+			tasks.clear();
 		}
 
 		for (Slot slot : copy) {

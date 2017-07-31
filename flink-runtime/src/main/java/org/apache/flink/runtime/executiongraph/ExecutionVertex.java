@@ -197,6 +197,10 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		this.numRecordsOutRate = numRecordsOutRate;
 	}
 
+	public Double getThroughput() {
+		return numRecordsOutRate / numRecordsInRate;
+	}
+
 	public JobID getJobId() {
 		return this.jobVertex.getJobId();
 	}

@@ -25,13 +25,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.migration.streaming.api.graph.StreamGraphHasherV1;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
-import org.apache.flink.runtime.jobgraph.InputFormatVertex;
-import org.apache.flink.runtime.jobgraph.JobEdge;
-import org.apache.flink.runtime.jobgraph.JobGraph;
-import org.apache.flink.runtime.jobgraph.JobVertex;
-import org.apache.flink.runtime.jobgraph.JobVertexID;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
+import org.apache.flink.runtime.jobgraph.*;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.jobgraph.tasks.ExternalizedCheckpointSettings;
 import org.apache.flink.runtime.jobgraph.tasks.JobSnapshottingSettings;
@@ -128,10 +122,36 @@ public class StreamingJobGraphGenerator {
 
 		configureCheckpointing();
 
+		// Compute the priorities and the min accuracies from the sinks to the sources
+
 		// set the ExecutionConfig last when it has been finalized
 		jobGraph.setExecutionConfig(streamGraph.getExecutionConfig());
 
 		return jobGraph;
+	}
+
+	/**
+	 * We do this by traversing form the sinks to the sources.
+	 */
+	private void computeMinAcAndPriority() {
+		// Traverse the topological order from sources in the inverse way
+		List<JobVertex> vertexes = jobGraph.getVerticesSortedTopologicallyFromSources();
+		int numVertexes = vertexes.size();
+		for(int i = numVertexes - 1; i >= 0 ; i--) {
+			int accuracy = 100;
+			int priority = 0;
+			JobVertex vertex = vertexes.get(i);
+
+			for(IntermediateDataSet dataSet : vertex.getProducedDataSets()) {
+				for(JobEdge childEdge : dataSet.getConsumers()) {
+					priority = Math.max(priority, childEdge.getTarget().getPriority());
+					accuracy = Math.max(accuracy, childEdge.getTarget().getAccuracy());
+				}
+			}
+
+			vertexes.get(i).setPriority(priority);
+			vertexes.get(i).setAccuracy(accuracy);
+		}
 	}
 
 	private void setPhysicalEdges() {

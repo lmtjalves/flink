@@ -405,11 +405,9 @@ class TaskManager(
 
         case UpdateTaskOutputSubpartitionNonDropProbability(executionId,
           partitionID,
-          subpartitionId,
-          nonDropProbability) => updateOutputSubpartitionNonDropProbability(
+          nonDropProbability) => updateOutputPartitionNonDropProbability(
           executionId,
           partitionID,
-          subpartitionId,
           nonDropProbability
         )
 
@@ -508,14 +506,13 @@ class TaskManager(
       }
   }
 
-  private def updateOutputSubpartitionNonDropProbability(
+  private def updateOutputPartitionNonDropProbability(
     executionId: ExecutionAttemptID,
     partitionID: Int,
-    subpartitionId: Int,
     nonDropProbability: Int
   ): Unit = Option(runningTasks.get()) match {
     case Some(task) =>
-      task.setSubPartitionNonDropProbability(partitionID, subpartitionId, nonDropProbability)
+      task.setPartitionNonDropProbability(partitionID, nonDropProbability)
     case None =>
       log.debug(
         s"Cannot find task with ID $executionId who's non drop probability must be updated"
