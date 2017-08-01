@@ -29,7 +29,9 @@ import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
 import org.apache.flink.util.Preconditions;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The base class for job vertexes.
@@ -98,6 +100,7 @@ public class JobVertex implements java.io.Serializable {
 
 	private int priority;
 	private int accuracy;
+	private Set<JobVertex> queries;
 
 	// --------------------------------------------------------------------------------------------
 
@@ -119,6 +122,7 @@ public class JobVertex implements java.io.Serializable {
 	public JobVertex(String name, JobVertexID id) {
 		this.name = name == null ? DEFAULT_NAME : name;
 		this.id = id == null ? new JobVertexID() : id;
+		this.queries = new HashSet<>();
 	}
 
 	/**
@@ -132,6 +136,7 @@ public class JobVertex implements java.io.Serializable {
 		this.name = name == null ? DEFAULT_NAME : name;
 		this.id = primaryId == null ? new JobVertexID() : primaryId;
 		this.idAlternatives.addAll(alternativeIds);
+		this.queries = new HashSet<>();
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -188,6 +193,18 @@ public class JobVertex implements java.io.Serializable {
 	 */
 	public int getNumberOfInputs() {
 		return this.inputs.size();
+	}
+
+	public void addQuery(JobVertex query) {
+		queries.add(query);
+	}
+
+	public void addQueries(Set<JobVertex> query) {
+		queries.addAll(query);
+	}
+
+	public Set<JobVertex> getQueries() {
+		return queries;
 	}
 
 	/**

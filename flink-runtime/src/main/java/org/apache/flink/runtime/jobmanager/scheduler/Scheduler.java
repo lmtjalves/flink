@@ -358,7 +358,7 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener, Sl
 
 			try {
 				SimpleSlot slot = instanceToUse.allocateSimpleSlot(vertex.getJobId());
-				
+
 				// if the instance has further available slots, re-add it to the set of available resources.
 				if (instanceToUse.hasResourcesAvailable()) {
 					this.instancesWithAvailableResources.put(instanceToUse.getTaskManagerID(), instanceToUse);

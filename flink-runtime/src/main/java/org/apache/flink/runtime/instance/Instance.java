@@ -78,8 +78,6 @@ public class Instance implements SlotOwner {
 	/** Flag marking the instance as alive or as dead. */
 	private volatile boolean isDead;
 
-	private int cpuLoad;
-
 	// priority -> List of tasks
 	private HashMap<Integer, HashSet<ExecutionVertex>> tasks;
 
@@ -147,10 +145,13 @@ public class Instance implements SlotOwner {
 	 * @return
 	 */
 	public int numTasksWithPriority(int priority) {
-		HashSet<ExecutionVertex> priorityTasks = tasks.get(priority);
+		int size = 0;
+		synchronized (instanceLock) {
+			HashSet<ExecutionVertex> priorityTasks = tasks.get(priority);
+			size = (priorityTasks == null)? 0 : priorityTasks.size();
+		}
 
-		if(priorityTasks == null) return 0;
-		else return priorityTasks.size();
+		return size;
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -262,21 +263,27 @@ public class Instance implements SlotOwner {
 		}
 	}
 
-	public void addTask(ExecutionVertex task) {
-		int priority = task.getJobVertex().priority();
-		HashSet<ExecutionVertex> priorityTasks = tasks.get(priority);
-
-		if(priorityTasks == null) {
-			priorityTasks = new HashSet<ExecutionVertex>();
-			tasks.put(priority, priorityTasks);
+	public void addTask(ExecutionVertex task) throws InstanceDiedException  {
+		if (task == null) {
+			throw new IllegalArgumentException();
 		}
 
-		priorityTasks.add(task);
-	}
+		synchronized (instanceLock) {
+			if (isDead) {
+				throw new InstanceDiedException(this);
+			}
 
-	public void removeTask(ExecutionVertex task) {
-		HashSet<ExecutionVertex> priorityTasks = tasks.get(task.getJobVertex().priority());
-		if(priorityTasks != null) priorityTasks.remove(task);
+
+			int priority = task.getJobVertex().priority();
+			HashSet<ExecutionVertex> priorityTasks = tasks.get(priority);
+
+			if (priorityTasks == null) {
+				priorityTasks = new HashSet<ExecutionVertex>();
+				tasks.put(priority, priorityTasks);
+			}
+
+			priorityTasks.add(task);
+		}
 	}
 
 	/**
@@ -316,6 +323,16 @@ public class Instance implements SlotOwner {
 			}
 		}
 	}
+
+	public void removeTask(ExecutionVertex task) {
+		checkNotNull(task);
+
+		synchronized (instanceLock) {
+			HashSet<ExecutionVertex> priorityTasks = tasks.get(task.getJobVertex().priority());
+			if(priorityTasks != null) priorityTasks.remove(task);
+		}
+	}
+
 
 	/**
 	 * Returns a slot that has been allocated from this instance. The slot needs have been canceled

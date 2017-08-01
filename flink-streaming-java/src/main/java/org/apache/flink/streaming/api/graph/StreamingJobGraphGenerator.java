@@ -138,14 +138,23 @@ public class StreamingJobGraphGenerator {
 		List<JobVertex> vertexes = jobGraph.getVerticesSortedTopologicallyFromSources();
 		int numVertexes = vertexes.size();
 		for(int i = numVertexes - 1; i >= 0 ; i--) {
-			int accuracy = 100;
-			int priority = 0;
 			JobVertex vertex = vertexes.get(i);
+			int accuracy = vertex.getAccuracy();
+			int priority = vertex.getPriority();
+
+			// Also add queries
+			if(vertex.getProducedDataSets().isEmpty()) {
+				// It's a sink, add itself as his query
+				vertex.addQuery(vertex);
+			}
 
 			for(IntermediateDataSet dataSet : vertex.getProducedDataSets()) {
 				for(JobEdge childEdge : dataSet.getConsumers()) {
-					priority = Math.max(priority, childEdge.getTarget().getPriority());
-					accuracy = Math.max(accuracy, childEdge.getTarget().getAccuracy());
+					JobVertex child = childEdge.getTarget();
+
+					vertex.addQueries(child.getQueries());
+					priority = Math.max(priority, child.getPriority());
+					accuracy = Math.max(accuracy, child.getAccuracy());
 				}
 			}
 
