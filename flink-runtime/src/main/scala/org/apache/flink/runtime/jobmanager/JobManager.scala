@@ -20,7 +20,8 @@ package org.apache.flink.runtime.jobmanager
 
 import java.io.{File, IOException}
 import java.net._
-import java.util.UUID
+import java.util
+import java.util.{Comparator, UUID}
 import java.util.concurrent.{TimeUnit, Future => _, TimeoutException => _, _}
 
 import akka.actor.Status.{Failure, Success}
@@ -49,11 +50,11 @@ import org.apache.flink.runtime.execution.SuppressRestartsException
 import org.apache.flink.runtime.execution.librarycache.BlobLibraryCacheManager
 import org.apache.flink.runtime.executiongraph.restart.RestartStrategyFactory
 import org.apache.flink.runtime.executiongraph._
-import org.apache.flink.runtime.instance.{AkkaActorGateway, InstanceID, InstanceManager}
-import org.apache.flink.runtime.jobgraph.{JobGraph, JobStatus, JobVertexID}
+import org.apache.flink.runtime.instance.{AkkaActorGateway, Instance, InstanceID, InstanceManager}
+import org.apache.flink.runtime.jobgraph._
 import org.apache.flink.runtime.jobmanager.SubmittedJobGraphStore.SubmittedJobGraphListener
 import org.apache.flink.runtime.jobmanager.scheduler.{Scheduler => FlinkScheduler}
-import org.apache.flink.runtime.jobmanager.slots.ActorTaskManagerGateway
+import org.apache.flink.runtime.jobmanager.slots.{ActorTaskManagerGateway, SlotOwner}
 import org.apache.flink.runtime.leaderelection.{LeaderContender, LeaderElectionService, StandaloneLeaderElectionService}
 import org.apache.flink.runtime.messages.ArchiveMessages.ArchiveExecutionGraph
 import org.apache.flink.runtime.messages.ExecutionGraphMessages.JobStatusChanged
@@ -62,7 +63,7 @@ import org.apache.flink.runtime.messages.Messages.Disconnect
 import org.apache.flink.runtime.messages.RegistrationMessages._
 import org.apache.flink.runtime.messages.{Acknowledge, StackTrace}
 import org.apache.flink.runtime.messages.TaskManagerMessages.{Heartbeat, SendHeartbeat}
-import org.apache.flink.runtime.messages.TaskMessages.UpdateTaskExecutionState
+import org.apache.flink.runtime.messages.TaskMessages.{UpdateNonDropProbabilities, UpdateTaskExecutionState}
 import org.apache.flink.runtime.messages.accumulators._
 import org.apache.flink.runtime.messages.checkpoint.{AbstractCheckpointMessage, AcknowledgeCheckpoint, DeclineCheckpoint}
 import org.apache.flink.runtime.messages.webmonitor.{InfoMessage, _}
@@ -183,6 +184,10 @@ class JobManager(
 
   /** Sends a message to the JobManager itself for it to update the load shedders. */
   private var loadSheddingTunnerScheduler: Option[Cancellable] = None
+
+  private val priorities      = scala.collection.mutable.SortedSet.empty[Int](Ordering.Int.reverse)
+  private val prioritiesCount = scala.collection.mutable.Map.empty[Int, Int]
+
 
   /**
    * Run when the job manager is started. Simply logs an informational message.
@@ -1099,8 +1104,12 @@ class JobManager(
 
       log.info("Received metric:" + tasksMetrics)
 
+      var totalCpu = 0L
+
       // Update all the metrics that we store per task
       tasksMetrics.foreach { case (identifier, metric) =>
+        totalCpu = totalCpu + metric.cpuLoad
+
         currentJobs.get(identifier._1).map { case (executionGraph, _) =>
           executionGraph.setMetrics(
             identifier._2,
@@ -1224,9 +1233,126 @@ class JobManager(
    * Re-tunes all the load shedders in the current executing jobs.
    */
   private def tuneLoadShedders(): Unit = {
-    // TODO
-    val vertices = currentJobs.values.map(_._1.getAllVertices.get(""))
-    vertices.tail
+    var desired: Map[JobVertex, Int] = Map.empty
+    var availCpu: Map[SlotOwner, Int] = Map.empty
+
+    def maxAc(vertex: ExecutionVertex): Int = vertex.getJobVertex.getJobVertex.getQueries.asScala
+      .foldRight(0)((vertex, currMax) => Math.max(currMax, desired(vertex)))
+
+    def minCanGet(vertex: ExecutionVertex): Int = {
+      val instance = vertex.getCurrentExecutionAttempt.getAssignedResource.getOwner
+      val priority = vertex.getJobVertex.getJobVertex.getPriority
+      availCpu(instance) / instance.numTasksWithPriority(priority)
+    }
+
+    def slack(instance: SlotOwner, priority: Int): Int = {
+      instance.tasksWithPriority(priority).asScala.foldRight(0) { (task, total) =>
+        total + (task.getJobVertex.reqCpu(maxAc(task)) - minCanGet(task))
+      }
+    }
+
+    def releaseCpuByKill(cpu: Int, tasks: List[ExecutionVertex]): Unit = {
+      var releasedCpu = 0
+      val orderedByCpu = tasks.sortBy(_.getCpuLoad)
+      while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0) {
+        val taskToKill = orderedByCpu.head
+
+        releasedCpu = releasedCpu + taskToKill.getCpuLoad
+        taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
+      }
+    }
+
+    def distributeEvenly(tasks: List[ExecutionVertex]): Unit = {
+      var c = 0
+
+      tasks.map(t => (t, t.getJobVertex.reqCpu(maxAc(t)))).sortBy(_._2).foreach { case (t, req) =>
+        val avail = availCpu(t.getCurrentAssignedResource.getOwner)
+        val cpu = Math.min(req, avail)
+        val ac = t.getJobVertex.obtainedAc(cpu)
+
+        t.getJobVertex.getJobVertex.getQueries.asScala.foreach { q =>
+          val prevDesired = desired(q)
+          desired = desired + (q -> Math.min(prevDesired, ac))
+        }
+
+        availCpu = availCpu + (t.getCurrentAssignedResource.getOwner -> (avail - cpu))
+        c = c + 1
+      }
+    }
+
+    instanceManager.getAllRegisteredInstances.asScala.foreach { (instance) =>
+      availCpu = availCpu + (instance -> instance.numCpuCores() * 100)
+    }
+
+    // Given a jobGraph (or executionGraph, retrieve all the sinks)
+    currentJobs.values.map { case (jobGraph, _) =>
+      jobGraph.getSinks.asScala.foreach { sink =>
+        desired = desired + (sink.getJobVertex -> 100)
+      }
+    }
+
+    priorities.synchronized {
+      priorities.foreach { priority =>
+        val tmWithCurrPriority = mutable.MutableList.empty[Instance]
+
+        instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
+          if(instance.numTasksWithPriority(priority) != 0) {
+            tmWithCurrPriority += instance
+
+            val reqCpu = instance.tasksWithPriority(priority)
+              .asScala.foldRight(0) { (task, total) =>
+              total + task.getJobVertex.reqCpu(task.getJobVertex.minAc())
+            }
+
+            if(reqCpu > availCpu(instance)) {
+              releaseCpuByKill(
+                reqCpu - availCpu(instance),
+                instance.tasksWithPriority(priority).asScala.toList
+              )
+            }
+          }
+        }
+
+        tmWithCurrPriority.sortWith(slack(_, priority) > slack(_, priority)).foreach { tm =>
+          distributeEvenly(tm.tasksWithPriority(priority).asScala.toList)
+        }
+      }
+
+      currentJobs.values.foreach { case (job, _) =>
+        val topologicalOrderFromSources = job.getVerticesTopologically.asScala.toList
+        topologicalOrderFromSources.reverseIterator.foreach { task =>
+          val desiredAcforTask = task.getInputs.asScala.foldRight(0){
+            case (i, currMax) => Math.max(desired(i.getProducer.getJobVertex), currMax)
+          }
+
+          desired = desired + (task.getJobVertex -> desiredAcforTask)
+        }
+
+        topologicalOrderFromSources.foreach { producer =>
+          producer.getProducedDataSets.foreach { producedDataset =>
+            val consumer = producedDataset.getPartitions
+              .head.getConsumers
+              .asScala.head.asScala.head
+              .getTarget.getJobVertex.getJobVertex
+
+            producedDataset.setNonDropProbability(desired(consumer) / producer.ac())
+          }
+        }
+      }
+
+      instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
+        val probabilities = instance.tasks().values().asScala.map(_.asScala).flatten.map { task =>
+          task.getProducedPartitions.asScala.map { case (id, irp) =>
+            (task.getCurrentExecutionAttempt.getAttemptId, id) ->
+              irp.getIntermediateResult.getNonDropProbability
+          }
+        }.flatten.toMap
+
+        instance.getTaskManagerGateway.updateNonDropProbabilities(UpdateNonDropProbabilities(
+          probabilities
+        ))
+      }
+    }
   }
 
   /**
@@ -1315,7 +1441,6 @@ class JobManager(
             new UnregisteredMetricsGroup()
         }
 
-        val numSlots = scheduler.getTotalNumberOfSlots()
 
         // see if there already exists an ExecutionGraph for the corresponding job ID
         val registerNewGraph = currentJobs.get(jobGraph.getJobID) match {
@@ -1338,11 +1463,19 @@ class JobManager(
           Time.of(timeout.length, timeout.unit),
           restartStrategy,
           jobMetrics,
-          numSlots,
           log.logger)
         
         if (registerNewGraph) {
-          currentJobs.put(jobGraph.getJobID, (executionGraph, jobInfo))
+          // Also update the priorities
+          priorities.synchronized {
+            executionGraph.getSinks.asScala.foreach { task =>
+              val p = task.getJobVertex.getPriority
+              priorities.add(p)
+              val count = prioritiesCount.getOrElseUpdate(p, 0)
+              prioritiesCount.update(p, count + 1)
+            }
+            currentJobs.put(jobGraph.getJobID, (executionGraph, jobInfo))
+          }
         }
 
         // get notified about job status changes
@@ -1363,6 +1496,19 @@ class JobManager(
           log.error(s"Failed to submit job $jobId ($jobName)", t)
 
           libraryCacheManager.unregisterJob(jobId)
+
+          // Also update the priorities
+          priorities.synchronized {
+            executionGraph.getSinks.asScala.foreach { task =>
+              val p = task.getJobVertex.getPriority
+              val count = prioritiesCount.getOrElseUpdate(p, 1) - 1
+              prioritiesCount.update(p, count)
+              if (count <= 0) {
+                priorities.remove(p)
+              }
+            }
+          }
+
           currentJobs.remove(jobId)
 
           if (executionGraph != null) {
@@ -1813,6 +1959,19 @@ class JobManager(
           None
         }
 
+        priorities.synchronized {
+          // Also update the priorities
+          currentJobs.get(jobID).map(job =>
+            job._1.getSinks.asScala.foreach { task =>
+              val p = task.getJobVertex.getPriority
+              val count = prioritiesCount.getOrElseUpdate(p, 1) - 1
+              prioritiesCount.update(p, count)
+              if (count <= 0) {
+                priorities.remove(p)
+              }
+            }
+          )
+        }
         currentJobs.remove(jobID)
 
         result

@@ -96,7 +96,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	private volatile boolean scheduleLocalOnly;
 
-	private long cpuLoad;
+	private int cpuLoad;
 
 	private Double numRecordsInRate;
 
@@ -183,12 +183,12 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	//  Properties
 	// --------------------------------------------------------------------------------------------
 
-	public long getCpuLoad() {
+	public int getCpuLoad() {
 		return this.cpuLoad;
 	}
 
 	public void setMetrics(
-		long cpuLoad,
+		int cpuLoad,
 		Double numRecordsInRate,
 		Double numRecordsOutRate
 	) {
@@ -514,14 +514,20 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	}
 
 	public void cancel() {
+		numRecordsInRate = 0D;
+		numRecordsOutRate = 0D;
 		this.currentExecution.cancel();
 	}
 
 	public void stop() {
+		numRecordsInRate = 0D;
+		numRecordsOutRate = 0D;
 		this.currentExecution.stop();
 	}
 
 	public void fail(Throwable t) {
+		numRecordsInRate = 0D;
+		numRecordsOutRate = 0D;
 		this.currentExecution.fail(t);
 	}
 

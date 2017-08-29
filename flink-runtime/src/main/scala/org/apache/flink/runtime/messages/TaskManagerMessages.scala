@@ -53,7 +53,7 @@ object TaskManagerMessages {
   }
 
   case class HeartbeatTaskMetrics(
-    cpuLoad: Long,
+    cpuLoad: Int,
     numRecordsInRate: Double,
     numRecordsOutRate: Double
   )

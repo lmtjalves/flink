@@ -33,10 +33,11 @@ import org.apache.flink.runtime.accumulators.StringifiedAccumulatorResult;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.instance.SlotProvider;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSet;
-import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
-import org.apache.flink.runtime.jobgraph.JobEdge;
+import org.apache.flink.runtime.jobgraph.JobStatus;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.jobgraph.JobEdge;
+import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobmanager.JobManagerOptions;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
 import org.apache.flink.runtime.jobmanager.scheduler.NoResourceAvailableException;
@@ -160,7 +161,6 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 			this.producedDataSets[i] = new IntermediateResult(
 					result.getId(),
-					i,
 					this,
 					numTaskVertices,
 					result.getResultType());
@@ -245,13 +245,19 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 * task instance at the current instant.
 	 */
 	public int getCpuLoad() {
-		long maxCpu = 0;
+		if(graph.getState() == JobStatus.FAILED || graph.getState() == JobStatus.FAILING
+			|| graph.getState() == JobStatus.CANCELED || graph.getState() == JobStatus.CANCELLING
+			|| graph.getState() == JobStatus.FINISHED || graph.getState() == JobStatus.SUSPENDED) {
+			return 0;
+		}
+
+		int maxCpu = 0;
 
 		for(int i = 0; i < taskVertices.length; i++) {
 			maxCpu = Math.max(maxCpu, taskVertices[i].getCpuLoad());
 		}
 
-		return (int) maxCpu;
+		return maxCpu;
 	}
 
 	/**
@@ -283,11 +289,11 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	}
 
 	public int reqCpu(int wantedAc) {
-		return Math.min((wantedAc * getCpuLoad()) / ac(), 100);
+		return Math.min((wantedAc * getCpuLoad()) / getCurrAc(), 100);
 	}
 
 	public int obtainedAc(int wantedCpu) {
-		return Math.min((wantedCpu * ac()) / getCpuLoad(), 100);
+		return Math.min((wantedCpu * getCurrAc()) / getCpuLoad(), 100);
 	}
 
 	public int ac() {
@@ -308,7 +314,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 */
 	public void setMetrics(
 		int vertexId,
-		long cpuLoad,
+		int cpuLoad,
 		Double numRecordsInRate,
 		Double numRecordsOutRate
 	) {

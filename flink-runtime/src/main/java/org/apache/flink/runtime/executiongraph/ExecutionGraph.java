@@ -211,7 +211,10 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 
 	// ------ Fields that are only relevant for archived execution graphs ------------
 	private String jsonPlan;
-	
+
+	private List<ExecutionJobVertex> sinks;
+
+
 	// --------------------------------------------------------------------------------------------
 	//   Constructors
 	// --------------------------------------------------------------------------------------------
@@ -284,6 +287,7 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 		this.intermediateResults = new ConcurrentHashMap<IntermediateDataSetID, IntermediateResult>();
 		this.verticesInCreationOrder = new ArrayList<ExecutionJobVertex>();
 		this.currentExecutions = new ConcurrentHashMap<ExecutionAttemptID, Execution>();
+		this.sinks = new ArrayList<ExecutionJobVertex>();
 
 		this.jobStatusListeners  = new CopyOnWriteArrayList<>();
 		this.executionListeners = new CopyOnWriteArrayList<>();
@@ -553,7 +557,7 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 	public void setMetrics(
 		JobVertexID jobVertex,
 		int vertexId,
-		long cpuLoad,
+		int cpuLoad,
 		Double numRecordsInRate,
 		Double numRecordsOutRate
 	) {
@@ -706,6 +710,9 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 				}
 			}
 
+			if(jobVertex.getNumberOfProducedIntermediateDataSets() == 0) {
+				this.sinks.add(ejv);
+			}
 			this.verticesInCreationOrder.add(ejv);
 		}
 	}
@@ -746,6 +753,10 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 		else {
 			throw new IllegalStateException("Job may only be scheduled from state " + JobStatus.CREATED);
 		}
+	}
+
+	public List<ExecutionJobVertex> getSinks() {
+		return sinks;
 	}
 
 	public void cancel() {

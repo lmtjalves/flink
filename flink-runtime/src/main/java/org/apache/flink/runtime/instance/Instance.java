@@ -18,11 +18,9 @@
 
 package org.apache.flink.runtime.instance;
 
-import java.util.*;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
-import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotAvailabilityListener;
 import org.apache.flink.runtime.jobmanager.slots.SlotOwner;
@@ -32,7 +30,14 @@ import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.collection.mutable.HashTable;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Queue;
+import java.util.Set;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.ArrayDeque;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -154,6 +159,32 @@ public class Instance implements SlotOwner {
 		return size;
 	}
 
+	public int getCpuLoad() {
+		synchronized (instanceLock) {
+			int cpuLoad = 0;
+			for(HashSet<ExecutionVertex> vertexes: tasks.values()) {
+				for(ExecutionVertex vertex : vertexes) {
+					cpuLoad += vertex.getCpuLoad();
+				}
+			}
+
+			return cpuLoad;
+		}
+	}
+
+	public HashSet<ExecutionVertex> tasksWithPriority(int priority) {
+		HashSet<ExecutionVertex> copy;
+		synchronized (instanceLock) {
+			copy = new HashSet(tasks.get(priority));
+		}
+
+		return copy;
+	}
+
+	public HashMap<Integer, HashSet<ExecutionVertex>> tasks() {
+		return tasks;
+	}
+
 	// --------------------------------------------------------------------------------------------
 	// Life and Death
 	// --------------------------------------------------------------------------------------------
@@ -251,29 +282,18 @@ public class Instance implements SlotOwner {
 				throw new InstanceDiedException(this);
 			}
 
-			Integer nextSlot = availableSlots.poll();
-			if (nextSlot == null) {
-				return null;
-			}
-			else {
-				SimpleSlot slot = new SimpleSlot(jobID, this, location, nextSlot, taskManagerGateway);
-				allocatedSlots.add(slot);
-				return slot;
-			}
+			SimpleSlot slot = new SimpleSlot(jobID, this, location, 0, taskManagerGateway);
+			allocatedSlots.add(slot);
+			return slot;
 		}
 	}
 
-	public void addTask(ExecutionVertex task) throws InstanceDiedException  {
+	public void addTask(ExecutionVertex task) {
 		if (task == null) {
 			throw new IllegalArgumentException();
 		}
 
 		synchronized (instanceLock) {
-			if (isDead) {
-				throw new InstanceDiedException(this);
-			}
-
-
 			int priority = task.getJobVertex().priority();
 			HashSet<ExecutionVertex> priorityTasks = tasks.get(priority);
 
@@ -329,7 +349,9 @@ public class Instance implements SlotOwner {
 
 		synchronized (instanceLock) {
 			HashSet<ExecutionVertex> priorityTasks = tasks.get(task.getJobVertex().priority());
-			if(priorityTasks != null) priorityTasks.remove(task);
+			if(priorityTasks != null) {
+				priorityTasks.remove(task);
+			}
 		}
 	}
 

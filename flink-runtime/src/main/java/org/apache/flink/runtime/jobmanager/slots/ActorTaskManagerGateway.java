@@ -124,7 +124,7 @@ public class ActorTaskManagerGateway implements TaskManagerGateway {
 			new TaskMessages.SubmitTask(tdd),
 			new FiniteDuration(timeout.getSize(), timeout.getUnit()))
 			.mapTo(ClassTag$.MODULE$.<Acknowledge>apply(Acknowledge.class));
-
+		
 		return new FlinkFuture<>(submitResult);
 	}
 
@@ -202,6 +202,13 @@ public class ActorTaskManagerGateway implements TaskManagerGateway {
 		Preconditions.checkNotNull(jobId);
 
 		actorGateway.tell(new TriggerCheckpoint(jobId, executionAttemptID, checkpointId, timestamp));
+	}
+
+	@Override
+	public void updateNonDropProbabilities(TaskMessages.UpdateNonDropProbabilities probabilites) {
+		Preconditions.checkNotNull(probabilites);
+
+		actorGateway.tell(probabilites);
 	}
 
 	@Override

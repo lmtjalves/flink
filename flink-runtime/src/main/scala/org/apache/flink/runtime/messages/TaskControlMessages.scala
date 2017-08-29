@@ -22,7 +22,7 @@ import java.util
 
 import org.apache.flink.runtime.deployment.{InputChannelDeploymentDescriptor, TaskDeploymentDescriptor}
 import org.apache.flink.runtime.executiongraph.{ExecutionAttemptID, PartitionInfo}
-import org.apache.flink.runtime.jobgraph.IntermediateDataSetID
+import org.apache.flink.runtime.jobgraph.{IntermediateDataSetID, IntermediateResultPartitionID}
 import org.apache.flink.runtime.taskmanager.TaskExecutionState
 
 /**
@@ -129,10 +129,8 @@ object TaskMessages {
   case class FailIntermediateResultPartitions(executionID: ExecutionAttemptID)
     extends TaskMessage with RequiresLeaderSessionID
 
-  case class UpdateTaskOutputSubpartitionNonDropProbability(
-     executionId: ExecutionAttemptID,
-     partitionID: Int,
-     nonDropProbability: Int
+  case class UpdateNonDropProbabilities(
+     probabilities: Map[(ExecutionAttemptID, IntermediateResultPartitionID), Int]
   ) extends TaskMessage
 
 

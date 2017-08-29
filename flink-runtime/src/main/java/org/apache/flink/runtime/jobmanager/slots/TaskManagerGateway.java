@@ -30,6 +30,7 @@ import org.apache.flink.runtime.instance.InstanceID;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.StackTrace;
 import org.apache.flink.runtime.messages.StackTraceSampleResponse;
+import org.apache.flink.runtime.messages.TaskMessages;
 
 /**
  * Task manager gateway interface to communicate with the task manager.
@@ -166,6 +167,8 @@ public interface TaskManagerGateway {
 		JobID jobId,
 		long checkpointId,
 		long timestamp);
+
+	void updateNonDropProbabilities(TaskMessages.UpdateNonDropProbabilities probabilites);
 
 	/**
 	 * Request the task manager log from the task manager.

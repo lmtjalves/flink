@@ -184,6 +184,7 @@ public class SimpleSlot extends Slot {
 			return false;
 		}
 
+		getOwner().addTask(executedVertex.getVertex());
 		return true;
 	}
 
@@ -223,6 +224,9 @@ public class SimpleSlot extends Slot {
 				// we have to give back the slot to the owning instance
 				if (markCancelled()) {
 					getOwner().returnAllocatedSlot(this);
+					if(exec != null) {
+						getOwner().removeTask(exec.getVertex());
+					}
 				}
 			} else {
 				// we have to ask our parent to dispose us

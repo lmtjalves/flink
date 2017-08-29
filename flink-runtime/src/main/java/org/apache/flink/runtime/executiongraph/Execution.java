@@ -250,7 +250,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 	 * @throws IllegalStateException Thrown, if the vertex is not in CREATED state, which is the only state that permits scheduling.
 	 * @throws NoResourceAvailableException Thrown is no queued scheduling is allowed and no resources are currently available.
 	 */
-	public boolean scheduleForExecution(SlotProvider slotProvider, boolean queued) throws NoResourceAvailableException {
+	public boolean scheduleForExecution(final SlotProvider slotProvider, boolean queued) throws NoResourceAvailableException {
 		if (slotProvider == null) {
 			throw new IllegalArgumentException("Cannot send null Scheduler when scheduling execution.");
 		}
@@ -413,10 +413,15 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 				NUM_STOP_CALL_TRIES,
 				executor);
 
-			stopResultFuture.exceptionally(new ApplyFunction<Throwable, Void>() {
+			stopResultFuture.handle(new BiFunction<Acknowledge,Throwable, Void>() {
+
 				@Override
-				public Void apply(Throwable failure) {
-					LOG.info("Stopping task was not successful.", failure);
+				public Void apply(Acknowledge acknowledge, Throwable throwable) {
+					if(acknowledge == null) {
+						LOG.info("Stopping task was not successful.", throwable);
+						return null;
+					}
+
 					return null;
 				}
 			});
@@ -956,10 +961,12 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 				NUM_CANCEL_CALL_TRIES,
 				executor);
 
-			cancelResultFuture.exceptionallyAsync(new ApplyFunction<Throwable, Void>() {
+			cancelResultFuture.handleAsync(new BiFunction<Acknowledge, Throwable, Object>() {
 				@Override
-				public Void apply(Throwable failure) {
-					fail(new Exception("Task could not be canceled.", failure));
+				public Object apply(Acknowledge acknowledge, Throwable throwable) {
+					if(acknowledge == null) {
+						fail(new Exception("Task could not be canceled.", throwable));
+					}
 					return null;
 				}
 			}, executor);

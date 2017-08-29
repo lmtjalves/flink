@@ -54,6 +54,7 @@ import org.apache.flink.runtime.io.network.partition.ResultPartitionConsumableNo
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGate;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
@@ -173,6 +174,7 @@ public class Task implements Runnable, TaskActions {
 	private final SerializedValue<ExecutionConfig> serializedExecutionConfig;
 
 	private final ResultPartition[] producedPartitions;
+	private final HashMap<ResultPartitionID, ResultPartition> partitionsById;
 
 	private final ResultPartitionWriter[] writers;
 
@@ -337,6 +339,7 @@ public class Task implements Runnable, TaskActions {
 
 		// Produced intermediate result partitions
 		this.producedPartitions = new ResultPartition[resultPartitionDeploymentDescriptors.size()];
+		this.partitionsById = new HashMap<>(resultPartitionDeploymentDescriptors.size());
 		this.writers = new ResultPartitionWriter[resultPartitionDeploymentDescriptors.size()];
 
 		int counter = 0;
@@ -358,6 +361,7 @@ public class Task implements Runnable, TaskActions {
 				desc.sendScheduleOrUpdateConsumersMessage());
 
 			writers[counter] = new ResultPartitionWriter(producedPartitions[counter]);
+			partitionsById.put(partitionId, producedPartitions[counter]);
 
 			++counter;
 		}
@@ -452,7 +456,7 @@ public class Task implements Runnable, TaskActions {
 		return executingThread;
 	}
 
-	public Long getCpuLoad() {
+	public int getCpuLoad() {
 		return cpuLoadGauge.getValue();
 	}
 
@@ -505,10 +509,15 @@ public class Task implements Runnable, TaskActions {
 		executingThread.start();
 	}
 
-	public void setPartitionNonDropProbability(int partitionId, int p) {
-		checkArgument(0 >= partitionId && partitionId < producedPartitions.length,
-			"The partitionId must be between 0 and the amount of partitions - 1");
-		producedPartitions[partitionId].setPartitionNonDropProbability(p);
+	public void setPartitionNonDropProbability(
+		ExecutionAttemptID executionId,
+		IntermediateResultPartitionID partitionId,
+		int p
+	) {
+		ResultPartition partition = partitionsById.get(new ResultPartitionID(partitionId, executionId));
+		if(partition != null) {
+			partition.setNonDropProbability(p);
+		}
 	}
 	/**
 	 * The core work method that bootstraps the task and executes it code
@@ -1524,7 +1533,7 @@ public class Task implements Runnable, TaskActions {
 		}
 	}
 
-	private class CpuLoadGauge implements Gauge<Long> {
+	private class CpuLoadGauge implements Gauge<Integer> {
 		private long lastTime = 0L;
 		private long previousCpuTime = 0L;
 		private Thread thread;
@@ -1535,15 +1544,15 @@ public class Task implements Runnable, TaskActions {
 		}
 
 		@Override
-		public Long getValue() {
+		public Integer getValue() {
 			tmxb.setThreadCpuTimeEnabled(true);
 
 			long currTime = System.currentTimeMillis();
-			long currentCpuTime = tmxb.getThreadCpuTime(thread.getId()) / 1000000;
+			long currentCpuTime = (int) tmxb.getThreadCpuTime(thread.getId()) / 1000000;
 
 			long elapsedTime = currTime - lastTime;
 			long elapsedCpuTime = currentCpuTime - previousCpuTime;
-			long res = 100 * elapsedCpuTime / elapsedTime;
+			int res = (int) (100 * elapsedCpuTime / elapsedTime);
 			lastTime = currTime;
 			previousCpuTime = currentCpuTime;
 			return res;

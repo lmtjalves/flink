@@ -42,16 +42,9 @@ public abstract class ResultSubpartition {
 	/** The total number of bytes (both data and event buffers) */
 	private long totalNumberOfBytes;
 
-	private volatile int nonDropProbability;
-
 	public ResultSubpartition(int index, ResultPartition parent) {
-		this(index, parent, 100);
-	}
-
-	public ResultSubpartition(int index, ResultPartition parent, int nonDropProbability) {
 		this.index = index;
 		this.parent = parent;
-		this.nonDropProbability = nonDropProbability;
 	}
 
 	protected void updateStatistics(Buffer buffer) {
@@ -91,12 +84,4 @@ public abstract class ResultSubpartition {
 	abstract public boolean isReleased();
 
 	abstract public int getNumberOfQueuedBuffers();
-
-	public int getNonDropProbability() {
-		return nonDropProbability;
-	}
-
-	public void setNonDropProbability(int nonDropProbability) {
-		this.nonDropProbability = nonDropProbability;
-	}
 }

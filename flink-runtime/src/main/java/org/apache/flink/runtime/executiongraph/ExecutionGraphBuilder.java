@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.executiongraph;
 
-import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.ConfigConstants;
@@ -67,7 +66,6 @@ public class ExecutionGraphBuilder {
 			Time timeout,
 			RestartStrategy restartStrategy,
 			MetricGroup metrics,
-			int parallelismForAutoMax,
 			Logger log)
 		throws JobExecutionException, JobException
 	{
@@ -123,10 +121,6 @@ public class ExecutionGraphBuilder {
 			if (executableClass == null || executableClass.isEmpty()) {
 				throw new JobSubmissionException(jobId,
 						"The vertex " + vertex.getID() + " (" + vertex.getName() + ") has no invokable class.");
-			}
-
-			if (vertex.getParallelism() == ExecutionConfig.PARALLELISM_AUTO_MAX) {
-				vertex.setParallelism(parallelismForAutoMax);
 			}
 
 			try {
@@ -197,7 +191,7 @@ public class ExecutionGraphBuilder {
 					snapshotSettings.getExternalizedCheckpointSettings(),
 					triggerVertices,
 					ackVertices,
-					confirmVertices,
+						confirmVertices,
 					checkpointIdCounter,
 					completedCheckpoints,
 					externalizedCheckpointsDir,

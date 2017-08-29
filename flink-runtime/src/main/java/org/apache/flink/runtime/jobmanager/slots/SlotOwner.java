@@ -18,12 +18,26 @@
 
 package org.apache.flink.runtime.jobmanager.slots;
 
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.instance.InstanceID;
 import org.apache.flink.runtime.instance.Slot;
+
+import java.util.HashSet;
 
 /**
  * Interface for components that hold slots and to which slots get released / recycled.
  */
 public interface SlotOwner {
 
+	InstanceID getId();
+
 	boolean returnAllocatedSlot(Slot slot);
+
+	void addTask(ExecutionVertex task);
+
+	void removeTask(ExecutionVertex task);
+
+	int numTasksWithPriority(int priority);
+
+	HashSet<ExecutionVertex> tasksWithPriority(int priority);
 }

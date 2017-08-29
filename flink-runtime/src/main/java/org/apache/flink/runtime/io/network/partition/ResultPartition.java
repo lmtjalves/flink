@@ -118,6 +118,8 @@ public class ResultPartition implements BufferPoolOwner {
 
 	private volatile Throwable cause;
 
+	private volatile int nonDropProbability;
+
 	// - Statistics ----------------------------------------------------------
 
 	/** The total number of buffers (both data and event buffers) */
@@ -154,14 +156,14 @@ public class ResultPartition implements BufferPoolOwner {
 		switch (partitionType) {
 			case BLOCKING:
 				for (int i = 0; i < subpartitions.length; i++) {
-					subpartitions[i] = new SpillableSubpartition(i, this, 100, ioManager);
+					subpartitions[i] = new SpillableSubpartition(i, this, ioManager);
 				}
 
 				break;
 
 			case PIPELINED:
 				for (int i = 0; i < subpartitions.length; i++) {
-					subpartitions[i] = new PipelinedSubpartition(i, this, 100);
+					subpartitions[i] = new PipelinedSubpartition(i, this);
 				}
 
 				break;
@@ -237,10 +239,13 @@ public class ResultPartition implements BufferPoolOwner {
 		return totalBuffers;
 	}
 
-	public void setPartitionNonDropProbability(int nonDropProbability) {
-		for(int i = 0; i < subpartitions.length; i++) {
-			subpartitions[i].setNonDropProbability(nonDropProbability);
-		}
+
+	public int getNonDropProbability() {
+		return nonDropProbability;
+	}
+
+	public void setNonDropProbability(int nonDropProbability) {
+		this.nonDropProbability = nonDropProbability;
 	}
 
 	// ------------------------------------------------------------------------

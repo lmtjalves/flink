@@ -486,6 +486,9 @@ public class SlotSharingGroupAssignment {
 					}
 
 					int parentRemaining = parent.removeDisposedChildSlot(simpleSlot);
+					if(simpleSlot.getExecutedVertex() != null) {
+						simpleSlot.getOwner().removeTask(simpleSlot.getExecutedVertex().getVertex());
+					}
 
 					if (parentRemaining > 0) {
 						// the parent shared slot is still alive. make sure we make it

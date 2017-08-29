@@ -52,7 +52,7 @@ import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool
 import org.apache.flink.runtime.io.network.{LocalConnectionManager, NetworkEnvironment, TaskEventDispatcher}
 import org.apache.flink.runtime.io.network.netty.{NettyConfig, NettyConnectionManager, PartitionProducerStateChecker}
 import org.apache.flink.runtime.io.network.partition.{ResultPartitionConsumableNotifier, ResultPartitionManager}
-import org.apache.flink.runtime.jobgraph.JobVertexID
+import org.apache.flink.runtime.jobgraph.{IntermediateResultPartitionID, JobVertexID}
 import org.apache.flink.runtime.leaderretrieval.{LeaderRetrievalListener, LeaderRetrievalService}
 import org.apache.flink.runtime.memory.MemoryManager
 import org.apache.flink.runtime.messages.{Acknowledge, StackTraceSampleResponse}
@@ -403,13 +403,13 @@ class TaskManager(
         case UpdateTaskMultiplePartitionInfos(executionID, partitionInfos) =>
           updateTaskInputPartitions(executionID, partitionInfos)
 
-        case UpdateTaskOutputSubpartitionNonDropProbability(executionId,
-          partitionID,
-          nonDropProbability) => updateOutputPartitionNonDropProbability(
-          executionId,
-          partitionID,
-          nonDropProbability
-        )
+        case UpdateNonDropProbabilities(probabilities) => probabilities.foreach {
+          case (identifier, probability) => updateOutputPartitionNonDropProbability(
+            identifier._1,
+            identifier._2,
+            probability
+          )
+        }
 
         // discards intermediate result partitions of a task execution on this TaskManager
         case FailIntermediateResultPartitions(executionID) =>
@@ -508,11 +508,11 @@ class TaskManager(
 
   private def updateOutputPartitionNonDropProbability(
     executionId: ExecutionAttemptID,
-    partitionID: Int,
+    partitionID: IntermediateResultPartitionID,
     nonDropProbability: Int
-  ): Unit = Option(runningTasks.get()) match {
+  ): Unit = Option(runningTasks.get(executionId)) match {
     case Some(task) =>
-      task.setPartitionNonDropProbability(partitionID, nonDropProbability)
+      task.setPartitionNonDropProbability(executionId, partitionID, nonDropProbability)
     case None =>
       log.debug(
         s"Cannot find task with ID $executionId who's non drop probability must be updated"
@@ -1129,12 +1129,10 @@ class TaskManager(
         case None => throw new IllegalStateException("There is no valid library cache manager.")
       }
 
-      /* THESIS: Slots are now dynamic, no need to check this
       val slot = tdd.getTargetSlotNumber
       if (slot < 0 || slot >= numberOfSlots) {
         throw new IllegalArgumentException(s"Target slot $slot does not exist on TaskManager.")
       }
-      */
 
       val (checkpointResponder,
         partitionStateChecker,
