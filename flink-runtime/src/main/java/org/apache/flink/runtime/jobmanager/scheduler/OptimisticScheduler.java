@@ -29,7 +29,7 @@ import java.util.Comparator;
 public class OptimisticScheduler implements InstanceListener, SlotAvailabilityListener, SlotProvider {
 
 	/** Scheduler-wide logger */
-	private static final Logger LOG = LoggerFactory.getLogger(Scheduler.class);
+	private static final Logger LOG = LoggerFactory.getLogger(OptimisticScheduler.class);
 
 
 	/** All modifications to the scheduler structures are performed under a global scheduler lock */
@@ -202,7 +202,7 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 			Instance instanceToUse = Collections.min(instances, new Comparator<Instance>() {
 				@Override
 				public int compare(Instance i1, Instance i2) {
-					return i1.getCpuLoad() - i2.getCpuLoad();
+				return i1.getCpuLoad() - i2.getCpuLoad();
 				}
 			});
 

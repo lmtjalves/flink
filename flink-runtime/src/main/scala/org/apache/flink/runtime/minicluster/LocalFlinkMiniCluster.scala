@@ -34,7 +34,7 @@ import org.apache.flink.runtime.instance.InstanceManager
 import org.apache.flink.runtime.io.disk.iomanager.IOManager
 import org.apache.flink.runtime.io.network.NetworkEnvironment
 import org.apache.flink.runtime.io.network.netty.NettyConfig
-import org.apache.flink.runtime.jobmanager.scheduler.Scheduler
+import org.apache.flink.runtime.jobmanager.scheduler.OptimisticScheduler
 import org.apache.flink.runtime.jobmanager.{JobManager, MemoryArchivist, SubmittedJobGraphStore}
 import org.apache.flink.runtime.leaderelection.LeaderElectionService
 import org.apache.flink.runtime.leaderretrieval.LeaderRetrievalService
@@ -254,7 +254,7 @@ class LocalFlinkMiniCluster(
       futureExecutor: Executor,
       ioExecutor: Executor,
       instanceManager: InstanceManager,
-      scheduler: Scheduler,
+      scheduler: OptimisticScheduler,
       libraryCacheManager: BlobLibraryCacheManager,
       archive: ActorRef,
       restartStrategyFactory: RestartStrategyFactory,

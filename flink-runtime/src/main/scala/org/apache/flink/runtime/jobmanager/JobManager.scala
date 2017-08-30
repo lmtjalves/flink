@@ -53,7 +53,7 @@ import org.apache.flink.runtime.executiongraph._
 import org.apache.flink.runtime.instance.{AkkaActorGateway, Instance, InstanceID, InstanceManager}
 import org.apache.flink.runtime.jobgraph._
 import org.apache.flink.runtime.jobmanager.SubmittedJobGraphStore.SubmittedJobGraphListener
-import org.apache.flink.runtime.jobmanager.scheduler.{Scheduler => FlinkScheduler}
+import org.apache.flink.runtime.jobmanager.scheduler.{OptimisticScheduler => FlinkScheduler}
 import org.apache.flink.runtime.jobmanager.slots.{ActorTaskManagerGateway, SlotOwner}
 import org.apache.flink.runtime.leaderelection.{LeaderContender, LeaderElectionService, StandaloneLeaderElectionService}
 import org.apache.flink.runtime.messages.ArchiveMessages.ArchiveExecutionGraph
@@ -2704,7 +2704,7 @@ object JobManager {
     try {
       blobServer = new BlobServer(configuration)
       instanceManager = new InstanceManager()
-      scheduler = new FlinkScheduler(ExecutionContext.fromExecutor(futureExecutor))
+      scheduler = new FlinkScheduler()
       libraryCacheManager = new BlobLibraryCacheManager(blobServer, cleanupInterval)
 
       instanceManager.addInstanceListener(scheduler)
