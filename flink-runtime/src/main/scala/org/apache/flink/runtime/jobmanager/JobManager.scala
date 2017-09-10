@@ -1233,31 +1233,46 @@ class JobManager(
    * Re-tunes all the load shedders in the current executing jobs.
    */
   private def tuneLoadShedders(): Unit = {
-    var desired: Map[JobVertex, Int] = Map.empty
-    var availCpu: Map[SlotOwner, Int] = Map.empty
+    log.info("Tunning Load Shedders")
 
+    // The desired accuracy for each query (for all applications)
+    val desired  = mutable.Map.empty[JobVertex, Int]
+
+    // Available CPU % that each Instance has available
+    val availCpu = mutable.Map.empty[SlotOwner, Int]
+
+    /**
+     * The maximum accuracy the task must provide in order to have the desired accuracy for the
+     * downstream queries, desired(q).
+     */
     def maxAc(vertex: ExecutionVertex): Int = vertex.getJobVertex.getJobVertex.getQueries.asScala
       .foldRight(0)((vertex, currMax) => Math.max(currMax, desired(vertex)))
 
+    /**
+     * The minimum amount of CPU that a task instance i is guaranteed to get.
+     */
     def minCanGet(vertex: ExecutionVertex): Int = {
       val instance = vertex.getCurrentExecutionAttempt.getAssignedResource.getOwner
       val priority = vertex.getJobVertex.getJobVertex.getPriority
       availCpu(instance) / instance.numTasksWithPriority(priority)
     }
 
-    def slack(instance: SlotOwner, priority: Int): Int = {
-      instance.tasksWithPriority(priority).asScala.foldRight(0) { (task, total) =>
+    def slack(instance: SlotOwner, priority: Int): Int = instance.tasksWithPriority(priority)
+      .asScala.foldRight(0) { (task, total) =>
         total + (task.getJobVertex.reqCpu(maxAc(task)) - minCanGet(task))
       }
-    }
+
 
     def releaseCpuByKill(cpu: Int, tasks: List[ExecutionVertex]): Unit = {
-      var releasedCpu = 0
-      val orderedByCpu = tasks.sortBy(_.getCpuLoad)
-      while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0) {
-        val taskToKill = orderedByCpu.head
+      var releasedCpu  = 0
+      val orderedByCpu = mutable.Queue(
+        tasks.map(t => (t, t.getCpuLoad))
+          .sortBy(_._2): _*
+      )
 
-        releasedCpu = releasedCpu + taskToKill.getCpuLoad
+      while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0) {
+        val (taskToKill, taskCpu) = orderedByCpu.dequeue()
+        releasedCpu = releasedCpu + taskCpu
         taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
       }
     }
@@ -1267,31 +1282,30 @@ class JobManager(
 
       tasks.map(t => (t, t.getJobVertex.reqCpu(maxAc(t)))).sortBy(_._2).foreach { case (t, req) =>
         val avail = availCpu(t.getCurrentAssignedResource.getOwner)
-        val cpu = Math.min(req, avail)
-        val ac = t.getJobVertex.obtainedAc(cpu)
+        val cpu   = Math.min(req, avail)
+        val ac    = t.getJobVertex.obtainedAc(cpu)
 
         t.getJobVertex.getJobVertex.getQueries.asScala.foreach { q =>
-          val prevDesired = desired(q)
-          desired = desired + (q -> Math.min(prevDesired, ac))
+          desired.put(q, Math.min(desired(q), ac))
         }
 
-        availCpu = availCpu + (t.getCurrentAssignedResource.getOwner -> (avail - cpu))
+        availCpu.put(t.getCurrentAssignedResource.getOwner, (avail - cpu))
         c = c + 1
       }
     }
 
-    instanceManager.getAllRegisteredInstances.asScala.foreach { (instance) =>
-      availCpu = availCpu + (instance -> instance.numCpuCores() * 100)
-    }
-
-    // Given a jobGraph (or executionGraph, retrieve all the sinks)
-    currentJobs.values.map { case (jobGraph, _) =>
-      jobGraph.getSinks.asScala.foreach { sink =>
-        desired = desired + (sink.getJobVertex -> 100)
-      }
-    }
-
     priorities.synchronized {
+
+      currentJobs.values.map { case (jobGraph, _) =>
+        jobGraph.getSinks.asScala.foreach { sink =>
+          desired.put(sink.getJobVertex, 100)
+        }
+      }
+
+      instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
+        availCpu.put(instance, instance.numCpuCores() * 100)
+      }
+
       priorities.foreach { priority =>
         val tmWithCurrPriority = mutable.MutableList.empty[Instance]
 
@@ -1299,10 +1313,10 @@ class JobManager(
           if(instance.numTasksWithPriority(priority) != 0) {
             tmWithCurrPriority += instance
 
-            val reqCpu = instance.tasksWithPriority(priority)
-              .asScala.foldRight(0) { (task, total) =>
-              total + task.getJobVertex.reqCpu(task.getJobVertex.minAc())
-            }
+            val reqCpu = instance.tasksWithPriority(priority).asScala
+              .foldRight(0) { (task, total) =>
+                total + task.getJobVertex.reqCpu(task.getJobVertex.minAc())
+              }
 
             if(reqCpu > availCpu(instance)) {
               releaseCpuByKill(
@@ -1313,33 +1327,42 @@ class JobManager(
           }
         }
 
-        tmWithCurrPriority.sortWith(slack(_, priority) > slack(_, priority)).foreach { tm =>
-          distributeEvenly(tm.tasksWithPriority(priority).asScala.toList)
-        }
+        tmWithCurrPriority.map(tm => (tm, -slack(tm, priority))).sortBy(_._2)
+          .foreach { case (tm, _) =>
+            distributeEvenly(tm.tasksWithPriority(priority).asScala.toList)
+          }
       }
-
+      /*
+      // Compute drop probabilities
       currentJobs.values.foreach { case (job, _) =>
         val topologicalOrderFromSources = job.getVerticesTopologically.asScala.toList
+
+        // Back pass (propagates required accuracies)
         topologicalOrderFromSources.reverseIterator.foreach { task =>
-          val desiredAcforTask = task.getInputs.asScala.foldRight(0){
+          val desiredActorTask = task.getInputs.asScala.foldRight(0){
             case (i, currMax) => Math.max(desired(i.getProducer.getJobVertex), currMax)
           }
 
-          desired = desired + (task.getJobVertex -> desiredAcforTask)
+          desired.put(task.getJobVertex, desiredActorTask)
         }
 
+        // Forward pass
         topologicalOrderFromSources.foreach { producer =>
           producer.getProducedDataSets.foreach { producedDataset =>
-            val consumer = producedDataset.getPartitions
-              .head.getConsumers
-              .asScala.head.asScala.head
-              .getTarget.getJobVertex.getJobVertex
+            // This only works because we have on dataset per consumer
+            val consumer = Option(producedDataset.getPartitions.head)
+              .map(_.getConsumers.asScala.head)
+              .map(_.asScala.head)
+              .map(_.getTarget.getJobVertex.getJobVertex)
 
-            producedDataset.setNonDropProbability(desired(consumer) / producer.ac())
+            consumer.foreach(c =>
+              producedDataset.setNonDropProbability(desired(c) / desired(producer.getJobVertex))
+            )
           }
         }
       }
 
+      // Send probabilities
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
         val probabilities = instance.tasks().values().asScala.map(_.asScala).flatten.map { task =>
           task.getProducedPartitions.asScala.map { case (id, irp) =>
@@ -1351,7 +1374,7 @@ class JobManager(
         instance.getTaskManagerGateway.updateNonDropProbabilities(UpdateNonDropProbabilities(
           probabilities
         ))
-      }
+      }*/
     }
   }
 

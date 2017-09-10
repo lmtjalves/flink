@@ -197,7 +197,11 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		this.numRecordsOutRate = numRecordsOutRate;
 	}
 
+
 	public Double getThroughput() {
+		if (numRecordsInRate == 0 || numRecordsOutRate == 0) {
+			return 1d;
+		}
 		return numRecordsOutRate / numRecordsInRate;
 	}
 

@@ -289,10 +289,21 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	}
 
 	public int reqCpu(int wantedAc) {
-		return Math.min((wantedAc * getCpuLoad()) / getCurrAc(), 100);
+		int currAc = getCurrAc();
+
+		if(currAc == 0) {
+			return 100;
+		}
+
+		return Math.min((wantedAc * getCpuLoad()) / currAc, 100);
 	}
 
 	public int obtainedAc(int wantedCpu) {
+		int cpu = getCpuLoad();
+		if (cpu == 0) {
+			return 100;
+		}
+
 		return Math.min((wantedCpu * getCurrAc()) / getCpuLoad(), 100);
 	}
 
