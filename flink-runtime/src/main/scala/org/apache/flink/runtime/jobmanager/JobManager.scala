@@ -1116,7 +1116,8 @@ class JobManager(
             identifier._3,
             metric.cpuLoad,
             metric.numRecordsInRate,
-            metric.numRecordsOutRate
+            metric.numRecordsOutRate,
+            metric.inputLagVariation
           )
         }
       }

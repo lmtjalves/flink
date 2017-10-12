@@ -327,10 +327,11 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		int vertexId,
 		int cpuLoad,
 		Double numRecordsInRate,
-		Double numRecordsOutRate
+		Double numRecordsOutRate,
+		Double inputLagVariation
 	) {
 		if(vertexId >= 0 && vertexId < taskVertices.length) {
-			taskVertices[vertexId].setMetrics(cpuLoad, numRecordsInRate, numRecordsOutRate);
+			taskVertices[vertexId].setMetrics(cpuLoad, numRecordsInRate, numRecordsOutRate, inputLagVariation);
 		}
 	}
 

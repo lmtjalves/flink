@@ -559,9 +559,10 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 		int vertexId,
 		int cpuLoad,
 		Double numRecordsInRate,
-		Double numRecordsOutRate
+		Double numRecordsOutRate,
+		Double inputLagVariation
 	) {
-		this.tasks.get(jobVertex).setMetrics(vertexId, cpuLoad, numRecordsInRate, numRecordsOutRate);
+		this.tasks.get(jobVertex).setMetrics(vertexId, cpuLoad, numRecordsInRate, numRecordsOutRate, inputLagVariation);
 	}
 
 	@Override

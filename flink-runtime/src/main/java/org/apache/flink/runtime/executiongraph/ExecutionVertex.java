@@ -102,6 +102,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	private Double numRecordsOutRate;
 
+	private Double inputLagVariation;
+
 
 	// --------------------------------------------------------------------------------------------
 
@@ -173,9 +175,10 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		this.timeout = timeout;
 
 		// Let's at the beginning that this is the subtask cpuLoad
-		this.cpuLoad = 100;
-		this.numRecordsInRate = new Double(0);
+		this.cpuLoad 		   = 100;
+		this.numRecordsInRate  = new Double(0);
 		this.numRecordsOutRate = new Double(0);
+		this.inputLagVariation = new Double(0);
 	}
 
 
@@ -190,11 +193,13 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	public void setMetrics(
 		int cpuLoad,
 		Double numRecordsInRate,
-		Double numRecordsOutRate
+		Double numRecordsOutRate,
+		Double inputLagVariation
 	) {
 		this.cpuLoad = cpuLoad;
 		this.numRecordsInRate = numRecordsInRate;
 		this.numRecordsOutRate = numRecordsOutRate;
+		this.inputLagVariation = inputLagVariation;
 	}
 
 
@@ -202,6 +207,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		if (numRecordsInRate == 0 || numRecordsOutRate == 0) {
 			return 1d;
 		}
+
 		return numRecordsOutRate / numRecordsInRate;
 	}
 
