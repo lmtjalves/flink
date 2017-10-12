@@ -98,11 +98,18 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	private int cpuLoad;
 
+	// Input rate measured in the task
 	private Double numRecordsInRate;
 
+	// Input rate measured in the task
 	private Double numRecordsOutRate;
 
+	// Lag rate in the input buffer of the task, only exists if the task is a source, otherwise equals zero
+	// If the lag rate > 0 it means the producer is producing records faster than the task can consume it.
 	private Double inputLagVariation;
+
+	// Whether we alredy received metrics or not from the task
+	private boolean receivedMetrics;
 
 
 	// --------------------------------------------------------------------------------------------
@@ -179,6 +186,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		this.numRecordsInRate  = new Double(0);
 		this.numRecordsOutRate = new Double(0);
 		this.inputLagVariation = new Double(0);
+		this.receivedMetrics   = false;
 	}
 
 
@@ -190,25 +198,33 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		return this.cpuLoad;
 	}
 
+	public Double numRecordsInRate() {
+		return this.numRecordsInRate;
+	}
+
+	public Double numRecordsOutRate() {
+		return this.numRecordsOutRate;
+	}
+
+	public Double numInputLagVariation() {
+		return this.inputLagVariation;
+	}
+
+	public boolean receivedMetrics() {
+		return this.receivedMetrics;
+	}
+
 	public void setMetrics(
 		int cpuLoad,
 		Double numRecordsInRate,
 		Double numRecordsOutRate,
 		Double inputLagVariation
 	) {
-		this.cpuLoad = cpuLoad;
-		this.numRecordsInRate = numRecordsInRate;
+		this.receivedMetrics   = true;
+		this.cpuLoad 		   = cpuLoad;
+		this.numRecordsInRate  = numRecordsInRate;
 		this.numRecordsOutRate = numRecordsOutRate;
 		this.inputLagVariation = inputLagVariation;
-	}
-
-
-	public Double getThroughput() {
-		if (numRecordsInRate == 0 || numRecordsOutRate == 0) {
-			return 1d;
-		}
-
-		return numRecordsOutRate / numRecordsInRate;
 	}
 
 	public JobID getJobId() {

@@ -245,6 +245,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 * task instance at the current instant.
 	 */
 	public int getCpuLoad() {
+		// If the task is not running, the it's not consuming any resources at all
 		if(graph.getState() == JobStatus.FAILED || graph.getState() == JobStatus.FAILING
 			|| graph.getState() == JobStatus.CANCELED || graph.getState() == JobStatus.CANCELLING
 			|| graph.getState() == JobStatus.FINISHED || graph.getState() == JobStatus.SUSPENDED) {
@@ -252,7 +253,6 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		}
 
 		int maxCpu = 0;
-
 		for(int i = 0; i < taskVertices.length; i++) {
 			maxCpu = Math.max(maxCpu, taskVertices[i].getCpuLoad());
 		}
@@ -265,13 +265,41 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 * of the task is maximized, i.e. the amount of input tuples equals the amount of output tuples.
 	 */
 	public int getCurrAc() {
-		int minCurrAc = 100;
-		for(int i = 0; i < taskVertices.length; i++) {
-			Double throughput = taskVertices[i].getThroughput();
-			minCurrAc = Math.min(minCurrAc, (int)(ac() / (1 / throughput)));
+		double upstreamOutputRate = 0;
+		double downStreamInputRate = 0;
+
+		if (this.getInputs().size() == 0) {
+			// It's a source task
+			for (int i = 0; i < taskVertices.length; i++) {
+				downStreamInputRate += taskVertices[i].numRecordsInRate();
+			}
+
+			// Compute input rate at the beginning of the buffer
+			upstreamOutputRate = downStreamInputRate + taskVertices[0].numInputLagVariation();
+		} else {
+			// It's not a source task, the current accuracy equals the difference between
+			// the downstream tasks input rate and the upstream tasks output rate
+			for (IntermediateResult result : this.getInputs()) {
+				ExecutionVertex[] vertexes = result.getProducer().getTaskVertices();
+				for (int i = 0; i < vertexes.length; i++) {
+					upstreamOutputRate += vertexes[i].numRecordsOutRate();
+				}
+			}
+
+			for (int i = 0; i < taskVertices.length; i++) {
+				downStreamInputRate += taskVertices[i].numRecordsInRate();
+			}
 		}
 
-		return minCurrAc;
+		if (upstreamOutputRate == 0) {
+			// We are processing 100% of the incoming data
+			return 1;
+		} else if (downStreamInputRate == 0) {
+			// We are not processing anything, though we have data on the buffer
+			return 0;
+		} else {
+			return (int) (upstreamOutputRate / downStreamInputRate);
+		}
 	}
 
 	/**
