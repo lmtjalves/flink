@@ -1365,7 +1365,7 @@ class TaskManager(
       runningTasks.asScala foreach {
         case (execID, task) =>
           try {
-            val registry = task.getAccumulatorRegistry
+            val registry     = task.getAccumulatorRegistry
             val accumulators = registry.getSnapshot
             accumulatorEvents.append(accumulators)
 
@@ -1378,6 +1378,9 @@ class TaskManager(
 
             val ioMetrics = task.getMetricGroup.getIOMetricGroup.createSnapshot()
             if(task.getAllInputGates.size == 0) {
+              // If the task is a source task, we will send the Kafka related metrics
+              // we assume all source tasks consume from Kafka (it's a restriction, since
+              // Kafka is the only source that provides some metrics we can work with)
               tasksMetrics += taskId -> HeartbeatTaskMetrics(
                 task.getCpuLoad,
                 task.getKafkaConsumeRate,

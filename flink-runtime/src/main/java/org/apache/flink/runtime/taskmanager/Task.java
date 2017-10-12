@@ -251,10 +251,13 @@ public class Task implements Runnable, TaskActions {
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
 	private long taskCancellationTimeout;
 
+	/* Measures the CPU usage of the task */
 	private CpuLoadGauge cpuLoadGauge;
 
+	/* Measures the Lag rate of the task on Apache Kafka, if it is a source task */
 	private KafkaInputRateGauge kafkaLagGauge;
 
+	/* Measures the input rate provided by Kafka, if it is a source task */
 	private Gauge<Double> kafkaInputRateGauge;
 
 	/**
@@ -402,7 +405,7 @@ public class Task implements Runnable, TaskActions {
 			this.metrics.getIOMetricGroup().initializeBufferMetrics(this);
 		}
 
-		this.cpuLoadGauge = new CpuLoadGauge(executingThread);
+		this.cpuLoadGauge  = new CpuLoadGauge(executingThread);
 		this.kafkaLagGauge = new KafkaInputRateGauge(metrics);
 	}
 
@@ -466,12 +469,16 @@ public class Task implements Runnable, TaskActions {
 		return cpuLoadGauge.getValue();
 	}
 
+	/**
+	 * Fetches the input rate measured in kafka. Equals to zero if the task is not an input task.
+	 */
 	public double getKafkaConsumeRate() {
 		if(inputGates.length != 0) {
 			// The task is not an input task, kafka consume rate is irrelevant
 			return 0;
 		} else {
 			if(kafkaInputRateGauge == null) {
+				// Try to fetch the metric if it exists
 				for(String operator : metrics.getOperatorsMetricsGroups().keySet()) {
 					// Check that is the source operator
 					if(operator.startsWith("Source:")) {
@@ -482,10 +489,19 @@ public class Task implements Runnable, TaskActions {
 					}
 				}
 			}
-			return kafkaInputRateGauge.getValue();
+
+			if(kafkaInputRateGauge == null) {
+				// The metric doesn't exist yet, we assume 0 messages are being processed
+				return 0;
+			} else {
+				return kafkaInputRateGauge.getValue();
+			}
 		}
 	}
 
+	/**
+	 * Returns the Lag rate (records/sec), zero if it's not an input task.
+	 */
 	public double getKafkaLagVariation() {
 		if(inputGates.length != 0) {
 			// The task is not an input task, lag variation is irrelevant
@@ -1572,8 +1588,13 @@ public class Task implements Runnable, TaskActions {
 	 * A gauge for the task thread CPU load.
 	 */
 	private class CpuLoadGauge implements Gauge<Integer> {
+		// Last time the gauge value was computed
 		private long lastTime;
+
+		// Last CPU time that was measured
 		private long previousCpuTime;
+
+		// The task thread that we will use to compute the task CPU usage
 		private Thread thread;
 		private ThreadMXBean tmxb;
 
@@ -1591,11 +1612,13 @@ public class Task implements Runnable, TaskActions {
 			long currTime       = System.currentTimeMillis();
 			long currentCpuTime = tmxb.getThreadCpuTime(thread.getId()) / 1000000;
 
-			long elapsedTime    = currTime - lastTime;
+			long elapsedTime    = currTime       - lastTime;
 			long elapsedCpuTime = currentCpuTime - previousCpuTime;
-			int res = (int) (100 * elapsedCpuTime / elapsedTime);
-			lastTime = currTime;
+			int res             = (int) (100 * elapsedCpuTime / elapsedTime);
+
+			lastTime	    = currTime;
 			previousCpuTime = currentCpuTime;
+
 			return res;
 		}
 	}
@@ -1603,21 +1626,23 @@ public class Task implements Runnable, TaskActions {
 	/**
 	 * Gauge that computes the difference between the input rate at which Kafka
 	 * is receiving messages and the output rate at which the task is consuming messages.
+	 * The rate is computed in records/sec.
 	 */
 	private class KafkaInputRateGauge implements Gauge<Double> {
 		// In order to get the max lag metric from Kafka
 		private TaskMetricGroup metrics;
 
+		// The registered metric that computes Kafka max lag
 		private Gauge<Double> lagMeter;
 
-		// So that we compute the time delta
+		// So that we compute the time delta (in seconds)
 		private long lastTime;
 
 		// To compute the lag delta
 		private long previousLag;
 
 		public KafkaInputRateGauge(TaskMetricGroup metrics) {
-			this.lastTime    = System.currentTimeMillis();
+			this.lastTime    = System.currentTimeMillis() / 1000;
 			this.metrics     = metrics;
 			this.previousLag = 0L;
 			this.lagMeter    = null;
@@ -1625,9 +1650,11 @@ public class Task implements Runnable, TaskActions {
 
 		@Override
 		public Double getValue() {
+			// The metric may not yet be registered into the Task metrics group
+			// if it's not, we need to try to acquire it
 			if(lagMeter == null) {
 				for(String operator : metrics.getOperatorsMetricsGroups().keySet()) {
-					// Check that is the source operator
+					// Get the source operator (name starts with "Source:" by convention
 					if(operator.startsWith("Source:")) {
 						lagMeter = (Gauge<Double>) metrics.getOperatorsMetricsGroups()
 							.get(operator).getGroup("KafkaConsumer")
@@ -1638,18 +1665,25 @@ public class Task implements Runnable, TaskActions {
 				}
 			}
 
+			// If we have/got the metric, we can now compute how it changes
 			if(lagMeter != null) {
-				long currTime = System.currentTimeMillis();
+				long currTime = System.currentTimeMillis() / 1000;
+
+				// Sometimes the lag is -Infinite, when transforming this into a long value
+				// it becomes Long.MinimumValue, which is not acceptable, thus we need to
+				// guarantee it is always >= 0
 				long currLag  = Math.max(0, lagMeter.getValue().longValue());
 
-				long elapsedLag  = currLag - previousLag;
+				long elapsedLag  = currLag  - previousLag;
 				long elapsedTime = currTime - lastTime;
 				double res       = elapsedLag / elapsedTime;
 
-				lastTime = currTime;
+				lastTime    = currTime;
 				previousLag = currLag;
+
 				return res;
 			} else {
+				// Otherwise the lag rate is zero (we assume no messages in queue)
 				return 0D;
 			}
 		}

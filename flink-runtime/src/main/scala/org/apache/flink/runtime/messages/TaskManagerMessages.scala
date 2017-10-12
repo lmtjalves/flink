@@ -54,10 +54,10 @@ object TaskManagerMessages {
 
   /**
    * Wrapper for a group of relevant metrics to send to the JobManager.
-   * @param cpuLoad           Cpu load of a task.
-   * @param numRecordsInRate  Input rate of the task.
-   * @param numRecordsOutRate Output rate of the task.
-   * @param inputLagVariation Variation of the input lag.
+   * @param cpuLoad           Cpu load of a task (in %).
+   * @param numRecordsInRate  Input rate of the task (in records/sec).
+   * @param numRecordsOutRate Output rate of the task (in records/sec).
+   * @param inputLagVariation Variation of the input lag (in records/sec).
    */
   case class HeartbeatTaskMetrics(
     cpuLoad: Int,
