@@ -124,6 +124,15 @@ public abstract class AbstractMetricGroup<A extends AbstractMetricGroup<?>> impl
 		return variables;
 	}
 
+	public Metric getMetric(String name) {
+		return metrics.get(name);
+	}
+
+	public AbstractMetricGroup getGroup(String name) {
+		return groups.get(name);
+	}
+
+
 	/**
 	 * Returns the logical scope of this group, for example
 	 * {@code "taskmanager.job.task"}
@@ -349,6 +358,7 @@ public abstract class AbstractMetricGroup<A extends AbstractMetricGroup<?>> impl
 			LOG.warn("Ignoring attempted registration of a metric due to being null for name {}.", name);
 			return;
 		}
+
 		// add the metric only if the group is still open
 		synchronized (this) {
 			if (!closed) {

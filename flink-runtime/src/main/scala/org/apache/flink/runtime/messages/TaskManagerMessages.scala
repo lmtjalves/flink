@@ -52,10 +52,18 @@ object TaskManagerMessages {
     def get() : SendHeartbeat.type = SendHeartbeat
   }
 
+  /**
+   * Wrapper for a group of relevant metrics to send to the JobManager.
+   * @param cpuLoad           Cpu load of a task.
+   * @param numRecordsInRate  Input rate of the task.
+   * @param numRecordsOutRate Output rate of the task.
+   * @param inputLagVariation Variation of the input lag.
+   */
   case class HeartbeatTaskMetrics(
     cpuLoad: Int,
     numRecordsInRate: Double,
-    numRecordsOutRate: Double
+    numRecordsOutRate: Double,
+    inputLagVariation: Double
   )
 
   /**

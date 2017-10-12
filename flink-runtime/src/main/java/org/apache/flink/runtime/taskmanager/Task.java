@@ -253,6 +253,10 @@ public class Task implements Runnable, TaskActions {
 
 	private CpuLoadGauge cpuLoadGauge;
 
+	private KafkaInputRateGauge kafkaLagGauge;
+
+	private Gauge<Double> kafkaInputRateGauge;
+
 	/**
 	 * <p><b>IMPORTANT:</b> This constructor may not start any work that would need to
 	 * be undone in the case of a failing task deployment.</p>
@@ -393,11 +397,13 @@ public class Task implements Runnable, TaskActions {
 		// finally, create the executing thread, but do not start it
 		executingThread = new Thread(TASK_THREADS_GROUP, this, taskNameWithSubtask);
 
-		this.cpuLoadGauge = new CpuLoadGauge(executingThread);
 		if (this.metrics != null && this.metrics.getIOMetricGroup() != null) {
 			// add metrics for buffers
 			this.metrics.getIOMetricGroup().initializeBufferMetrics(this);
 		}
+
+		this.cpuLoadGauge = new CpuLoadGauge(executingThread);
+		this.kafkaLagGauge = new KafkaInputRateGauge(metrics);
 	}
 
 	// ------------------------------------------------------------------------
@@ -458,6 +464,35 @@ public class Task implements Runnable, TaskActions {
 
 	public int getCpuLoad() {
 		return cpuLoadGauge.getValue();
+	}
+
+	public double getKafkaConsumeRate() {
+		if(inputGates.length != 0) {
+			// The task is not an input task, kafka consume rate is irrelevant
+			return 0;
+		} else {
+			if(kafkaInputRateGauge == null) {
+				for(String operator : metrics.getOperatorsMetricsGroups().keySet()) {
+					// Check that is the source operator
+					if(operator.startsWith("Source:")) {
+						this.kafkaInputRateGauge = (Gauge<Double>) metrics.getOperatorsMetricsGroups()
+							.get("Source: Custom Source").getGroup("KafkaConsumer")
+							.getMetric("records-consumed-rate");
+						break;
+					}
+				}
+			}
+			return kafkaInputRateGauge.getValue();
+		}
+	}
+
+	public double getKafkaLagVariation() {
+		if(inputGates.length != 0) {
+			// The task is not an input task, lag variation is irrelevant
+			return 0;
+		} else {
+			return kafkaLagGauge.getValue();
+		}
 	}
 
 	@VisibleForTesting
@@ -1533,29 +1568,90 @@ public class Task implements Runnable, TaskActions {
 		}
 	}
 
+	/**
+	 * A gauge for the task thread CPU load.
+	 */
 	private class CpuLoadGauge implements Gauge<Integer> {
-		private long lastTime = 0L;
-		private long previousCpuTime = 0L;
+		private long lastTime;
+		private long previousCpuTime;
 		private Thread thread;
-		private ThreadMXBean tmxb = ManagementFactory.getThreadMXBean();
+		private ThreadMXBean tmxb;
 
 		public CpuLoadGauge(Thread thread) {
-			this.thread = thread;
+			this.lastTime 	 	 = System.currentTimeMillis();
+			this.previousCpuTime = 0L;
+			this.thread 		 = thread;
+			this.tmxb 			 = ManagementFactory.getThreadMXBean();
 		}
 
 		@Override
 		public Integer getValue() {
 			tmxb.setThreadCpuTimeEnabled(true);
 
-			long currTime = System.currentTimeMillis();
-			long currentCpuTime = (int) tmxb.getThreadCpuTime(thread.getId()) / 1000000;
+			long currTime       = System.currentTimeMillis();
+			long currentCpuTime = tmxb.getThreadCpuTime(thread.getId()) / 1000000;
 
-			long elapsedTime = currTime - lastTime;
+			long elapsedTime    = currTime - lastTime;
 			long elapsedCpuTime = currentCpuTime - previousCpuTime;
 			int res = (int) (100 * elapsedCpuTime / elapsedTime);
 			lastTime = currTime;
 			previousCpuTime = currentCpuTime;
 			return res;
+		}
+	}
+
+	/**
+	 * Gauge that computes the difference between the input rate at which Kafka
+	 * is receiving messages and the output rate at which the task is consuming messages.
+	 */
+	private class KafkaInputRateGauge implements Gauge<Double> {
+		// In order to get the max lag metric from Kafka
+		private TaskMetricGroup metrics;
+
+		private Gauge<Double> lagMeter;
+
+		// So that we compute the time delta
+		private long lastTime;
+
+		// To compute the lag delta
+		private long previousLag;
+
+		public KafkaInputRateGauge(TaskMetricGroup metrics) {
+			this.lastTime    = System.currentTimeMillis();
+			this.metrics     = metrics;
+			this.previousLag = 0L;
+			this.lagMeter    = null;
+		}
+
+		@Override
+		public Double getValue() {
+			if(lagMeter == null) {
+				for(String operator : metrics.getOperatorsMetricsGroups().keySet()) {
+					// Check that is the source operator
+					if(operator.startsWith("Source:")) {
+						lagMeter = (Gauge<Double>) metrics.getOperatorsMetricsGroups()
+							.get(operator).getGroup("KafkaConsumer")
+							.getMetric("records-lag-max");
+
+						break;
+					}
+				}
+			}
+
+			if(lagMeter != null) {
+				long currTime = System.currentTimeMillis();
+				long currLag  = Math.max(0, lagMeter.getValue().longValue());
+
+				long elapsedLag  = currLag - previousLag;
+				long elapsedTime = currTime - lastTime;
+				double res       = elapsedLag / elapsedTime;
+
+				lastTime = currTime;
+				previousLag = currLag;
+				return res;
+			} else {
+				return 0D;
+			}
 		}
 	}
 }

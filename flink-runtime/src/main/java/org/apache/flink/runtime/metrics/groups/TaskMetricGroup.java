@@ -78,6 +78,10 @@ public class TaskMetricGroup extends ComponentMetricGroup<TaskManagerJobMetricGr
 		this.ioMetrics = new TaskIOMetricGroup(this);
 	}
 
+	public Map<String, OperatorMetricGroup> getOperatorsMetricsGroups() {
+		return operators;
+	}
+
 	// ------------------------------------------------------------------------
 	//  properties
 	// ------------------------------------------------------------------------

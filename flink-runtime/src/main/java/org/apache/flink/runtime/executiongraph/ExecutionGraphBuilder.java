@@ -191,7 +191,7 @@ public class ExecutionGraphBuilder {
 					snapshotSettings.getExternalizedCheckpointSettings(),
 					triggerVertices,
 					ackVertices,
-						confirmVertices,
+					confirmVertices,
 					checkpointIdCounter,
 					completedCheckpoints,
 					externalizedCheckpointsDir,

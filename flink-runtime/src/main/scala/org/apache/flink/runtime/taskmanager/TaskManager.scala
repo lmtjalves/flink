@@ -1377,12 +1377,21 @@ class TaskManager(
             )
 
             val ioMetrics = task.getMetricGroup.getIOMetricGroup.createSnapshot()
-
-            tasksMetrics += taskId -> HeartbeatTaskMetrics(
-              task.getCpuLoad,
-              ioMetrics.getNumRecordsInPerSecond,
-              ioMetrics.getNumRecordsOutPerSecond
-            );
+            if(task.getAllInputGates.size == 0) {
+              tasksMetrics += taskId -> HeartbeatTaskMetrics(
+                task.getCpuLoad,
+                task.getKafkaConsumeRate,
+                ioMetrics.getNumRecordsOutPerSecond,
+                task.getKafkaLagVariation
+              );
+            } else {
+              tasksMetrics += taskId -> HeartbeatTaskMetrics(
+                task.getCpuLoad,
+                ioMetrics.getNumRecordsInPerSecond,
+                ioMetrics.getNumRecordsOutPerSecond,
+                0
+              );
+            }
           } catch {
             case e: Exception =>
               log.warn("Failed to take accumulator snapshot for task {}.",

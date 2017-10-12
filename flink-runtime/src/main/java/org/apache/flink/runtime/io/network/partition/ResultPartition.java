@@ -118,7 +118,7 @@ public class ResultPartition implements BufferPoolOwner {
 
 	private volatile Throwable cause;
 
-	private volatile int nonDropProbability;
+	private volatile int nonDropProbability = 100;
 
 	// - Statistics ----------------------------------------------------------
 
