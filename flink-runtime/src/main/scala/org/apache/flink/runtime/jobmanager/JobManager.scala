@@ -1263,18 +1263,18 @@ class JobManager(
         total + task.getJobVertex.reqCpu(maxAc(task)) - minCanGet(task)
       }
 
-    // review
     def releaseCpuByKill(cpu: Int, tasks: List[ExecutionVertex]): Unit = {
       var releasedCpu  = 0
-      val orderedByCpu = mutable.Queue(
-        tasks.map(t => (t, t.getCpuLoad)).sortBy(_._2): _*
-      )
+      val orderedByCpu = mutable.Set(tasks.map(t => (t, t.getCpuLoad)): _*)
 
-      while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0) {
-        val (taskToKill, taskCpu) = orderedByCpu.dequeue()
+      do {
+        val (taskToKill, taskCpu) = orderedByCpu.minBy {
+          case (_, tcpu) => Math.abs((cpu - releasedCpu) - tcpu)
+        }
+
         releasedCpu = releasedCpu + taskCpu
         taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
-      }
+      } while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0)
     }
 
     def distributeEvenly(tasks: List[ExecutionVertex]): Unit = {
