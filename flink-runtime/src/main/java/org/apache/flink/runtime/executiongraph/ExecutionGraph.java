@@ -565,6 +565,16 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 		this.tasks.get(jobVertex).setMetrics(vertexId, cpuLoad, numRecordsInRate, numRecordsOutRate, inputLagVariation);
 	}
 
+	public boolean receivedMetrics() {
+		for(ExecutionJobVertex vertex : tasks.values()) {
+			if(!vertex.receivedMetrics()) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	@Override
 	public Iterable<ExecutionJobVertex> getVerticesTopologically() {
 		// we return a specific iterator that does not fail with concurrent modifications

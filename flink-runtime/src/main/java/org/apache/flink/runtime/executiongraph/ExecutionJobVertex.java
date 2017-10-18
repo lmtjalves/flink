@@ -245,7 +245,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 * task instance at the current instant.
 	 */
 	public int getCpuLoad() {
-		// If the task is not running, the it's not consuming any resources at all
+		// If the task is not running/starting, then it's not consuming any resources at all
 		if(graph.getState() == JobStatus.FAILED || graph.getState() == JobStatus.FAILING
 			|| graph.getState() == JobStatus.CANCELED || graph.getState() == JobStatus.CANCELLING
 			|| graph.getState() == JobStatus.FINISHED || graph.getState() == JobStatus.SUSPENDED) {
@@ -293,7 +293,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 		if (upstreamOutputRate == 0) {
 			// We are processing 100% of the incoming data
-			return 1;
+			return 100;
 		} else if (downStreamInputRate == 0) {
 			// We are not processing anything, though we have data on the buffer
 			return 0;
@@ -319,8 +319,10 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	public int reqCpu(int wantedAc) {
 		int currAc = getCurrAc();
 
+		// If the current accuracy is zero, we are processing nothing
+		// this means we don't even need to spend cpu in this task
 		if(currAc == 0) {
-			return 100;
+			return 0;
 		}
 
 		return Math.min((wantedAc * getCpuLoad()) / currAc, 100);
@@ -329,6 +331,9 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	public int obtainedAc(int wantedCpu) {
 		int cpu = getCpuLoad();
 		if (cpu == 0) {
+			// This will never happen, how is it possible that we have 0% CPU usage
+			// and still processing requests? Only when we are processing no requests
+			// in this case, the obtained accuracy will be 100%
 			return 100;
 		}
 
@@ -362,6 +367,16 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			taskVertices[vertexId].setMetrics(cpuLoad, numRecordsInRate, numRecordsOutRate, inputLagVariation);
 		}
 	}
+
+	public boolean receivedMetrics() {
+		for(int i = 0; i < taskVertices.length; i++) {
+			if(!taskVertices[i].receivedMetrics()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 
 	public ExecutionGraph getGraph() {
 		return graph;

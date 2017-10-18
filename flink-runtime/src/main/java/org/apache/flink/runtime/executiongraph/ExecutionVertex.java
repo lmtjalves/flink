@@ -108,7 +108,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	// If the lag rate > 0 it means the producer is producing records faster than the task can consume it.
 	private Double inputLagVariation;
 
-	// Whether we alredy received metrics or not from the task
+	// Whether we already received metrics or not from the task
 	private boolean receivedMetrics;
 
 
