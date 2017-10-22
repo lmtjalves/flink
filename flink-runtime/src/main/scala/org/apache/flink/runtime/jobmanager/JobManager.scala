@@ -1095,20 +1095,18 @@ class JobManager(
         TaskManagerInstance(Option(instanceManager.getRegisteredInstanceById(instanceID)))
       )
 
-    case Heartbeat(instanceID, accumulators, tasksMetrics) =>
+    case Heartbeat(instanceID, accumulators, cpuLoad, tasksMetrics) =>
       log.trace(s"Received heartbeat message from $instanceID.")
 
       updateAccumulators(accumulators)
 
       instanceManager.reportHeartBeat(instanceID)
+      instanceManager.getRegisteredInstanceById(instanceID).setCpuLoad(cpuLoad)
 
       log.info("Received metric:" + tasksMetrics)
 
-      var totalCpu = 0L
-
       // Update all the metrics that we store per task
       tasksMetrics.foreach { case (identifier, metric) =>
-        totalCpu = totalCpu + metric.cpuLoad
 
         currentJobs.get(identifier._1).map { case (executionGraph, _) =>
           executionGraph.setMetrics(
@@ -1303,7 +1301,10 @@ class JobManager(
       }
 
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
-        availCpu.put(instance, instance.numCpuCores() * 100)
+        availCpu.put(
+          instance,
+          instance.numCpuCores() * 100 - instance.getCpuLoad + instance.getTasksCpuLoad
+        )
       }
 
       priorities.foreach { priority =>
@@ -1366,7 +1367,9 @@ class JobManager(
 
             consumer.foreach(c =>
               if(desired(producer.getJobVertex) != 0) {
-                producedDataset.setNonDropProbability(desired(c) / desired(producer.getJobVertex))
+                producedDataset.setNonDropProbability(
+                  desired(c) / desired(producer.getJobVertex) * 100
+                )
               } else {
                 producedDataset.setNonDropProbability(0)
               }

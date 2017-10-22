@@ -1641,11 +1641,14 @@ public class Task implements Runnable, TaskActions {
 		// To compute the lag delta
 		private long previousLag;
 
+		private double previousLagRate;
+
 		public KafkaInputRateGauge(TaskMetricGroup metrics) {
-			this.lastTime    = System.currentTimeMillis() / 1000;
-			this.metrics     = metrics;
-			this.previousLag = 0L;
-			this.lagMeter    = null;
+			this.lastTime        = System.currentTimeMillis() / 1000;
+			this.metrics         = metrics;
+			this.previousLag     = 0L;
+			this.lagMeter        = null;
+			this.previousLagRate = 0D;
 		}
 
 		@Override
@@ -1677,6 +1680,12 @@ public class Task implements Runnable, TaskActions {
 				long elapsedLag  = currLag  - previousLag;
 				long elapsedTime = currTime - lastTime;
 				double res       = elapsedLag / elapsedTime;
+
+				if(previousLag == currLag && currLag != 0) {
+					res = previousLagRate;
+				} else {
+					previousLagRate = res;
+				}
 
 				lastTime    = currTime;
 				previousLag = currLag;

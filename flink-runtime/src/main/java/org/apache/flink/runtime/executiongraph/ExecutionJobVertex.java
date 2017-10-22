@@ -291,14 +291,14 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			}
 		}
 
-		if (upstreamOutputRate == 0) {
+		if (upstreamOutputRate <= 0) {
 			// We are processing 100% of the incoming data
 			return 100;
-		} else if (downStreamInputRate == 0) {
+		} else if (downStreamInputRate <= 0) {
 			// We are not processing anything, though we have data on the buffer
 			return 0;
 		} else {
-			return (int) (upstreamOutputRate / downStreamInputRate);
+			return Math.min((int) ((downStreamInputRate / upstreamOutputRate) * 100), 100);
 		}
 	}
 
@@ -376,7 +376,6 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		}
 		return true;
 	}
-
 
 	public ExecutionGraph getGraph() {
 		return graph;

@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.taskmanager
 
 import java.io.{File, FileInputStream, IOException}
+import java.lang.management
 import java.lang.management.ManagementFactory
 import java.net.{InetAddress, InetSocketAddress}
 import java.util
@@ -73,6 +74,7 @@ import org.apache.flink.runtime.security.SecurityUtils.SecurityConfiguration
 import org.apache.flink.runtime.util._
 import org.apache.flink.runtime.{FlinkActor, LeaderSessionMessageFilter, LogMessages}
 import org.apache.flink.util.MathUtils
+import com.sun.management.OperatingSystemMXBean
 
 import scala.collection.JavaConverters._
 import scala.concurrent._
@@ -1402,8 +1404,17 @@ class TaskManager(
           }
       }
 
-      currentJobManager foreach {
-        jm => jm ! decorateMessage(Heartbeat(instanceID, accumulatorEvents, tasksMetrics.toMap))
+      val cpuLoad = (ManagementFactory.getOperatingSystemMXBean()
+        .asInstanceOf[OperatingSystemMXBean])
+        .getSystemCpuLoad.toInt;
+
+      currentJobManager foreach { jm =>
+        jm ! decorateMessage(Heartbeat(
+          instanceID,
+          accumulatorEvents,
+          cpuLoad,
+          tasksMetrics.toMap
+        ))
       }
     }
     catch {

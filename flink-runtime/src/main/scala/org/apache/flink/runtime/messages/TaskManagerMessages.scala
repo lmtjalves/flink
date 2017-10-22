@@ -76,6 +76,7 @@ object TaskManagerMessages {
   case class Heartbeat(
     instanceID: InstanceID,
     accumulators: Seq[AccumulatorSnapshot],
+    cpuLoad: Int,
     tasksMetrics: Map[(JobID, JobVertexID, Int), HeartbeatTaskMetrics] = Map.empty)
 
 

@@ -86,6 +86,8 @@ public class Instance implements SlotOwner {
 	// priority -> List of tasks
 	private HashMap<Integer, HashSet<ExecutionVertex>> tasks;
 
+	private int cpuLoad;
+
 	// --------------------------------------------------------------------------------------------
 
 	/**
@@ -115,6 +117,7 @@ public class Instance implements SlotOwner {
 		}
 
 		this.tasks = new HashMap<>();
+		this.cpuLoad = 0;
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -159,7 +162,15 @@ public class Instance implements SlotOwner {
 		return size;
 	}
 
+	public void setCpuLoad(int cpuLoad) {
+		this.cpuLoad = cpuLoad;
+	}
+
 	public int getCpuLoad() {
+		return this.cpuLoad;
+	}
+
+	public int getTasksCpuLoad() {
 		synchronized (instanceLock) {
 			int cpuLoad = 0;
 			for(HashSet<ExecutionVertex> vertexes: tasks.values()) {

@@ -90,6 +90,8 @@ public class RecordWriter<T extends IOReadableWritable> {
 		for (int targetChannel : channelSelector.selectChannels(record, numChannels)) {
 			if(random.nextInt(100) <= targetPartition.getChannelNonDropProbability()) {
 				sendToTarget(record, targetChannel);
+				System.out.println("Kept with probability " + targetPartition.getChannelNonDropProbability());
+
 			} else {
 				System.out.println("Dropped with probability " + targetPartition.getChannelNonDropProbability());
 			}
