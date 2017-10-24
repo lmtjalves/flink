@@ -1272,6 +1272,8 @@ class JobManager(
           case (_, tcpu) => Math.abs((cpu - releasedCpu) - tcpu)
         }
 
+        orderedByCpu.remove(taskToKill, taskCpu)
+
         releasedCpu = releasedCpu + taskCpu
         taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
       } while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0)

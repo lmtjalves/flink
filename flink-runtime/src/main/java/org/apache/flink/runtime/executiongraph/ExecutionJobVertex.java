@@ -319,10 +319,14 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	public int reqCpu(int wantedAc) {
 		int currAc = getCurrAc();
 
-		// If the current accuracy is zero, we are processing nothing
-		// this means we don't even need to spend cpu in this task
 		if(currAc == 0) {
-			return 0;
+			if(wantedAc == 0) {
+				// We don't even need Cpu
+				return 0;
+			} else {
+				// We will certainly need infinite Cpu
+				return 100;
+			}
 		}
 
 		return Math.min((int)((double) wantedAc * getCpuLoad()) / currAc, 100);
