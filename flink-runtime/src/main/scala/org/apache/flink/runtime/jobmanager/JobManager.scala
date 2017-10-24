@@ -1253,6 +1253,8 @@ class JobManager(
     def minCanGet(vertex: ExecutionVertex): Int = {
       val instance = vertex.getCurrentExecutionAttempt.getAssignedResource.getOwner
       val priority = vertex.getJobVertex.getJobVertex.getPriority
+
+      // Ok to be an integer division
       availCpu(instance) / instance.numTasksWithPriority(priority)
     }
 
@@ -1303,7 +1305,7 @@ class JobManager(
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
         availCpu.put(
           instance,
-          instance.numCpuCores() * 100 - instance.getCpuLoad + instance.getTasksCpuLoad
+          instance.numCpuCores() * (100 - instance.getCpuLoad) + instance.getTasksCpuLoad
         )
       }
 
@@ -1368,7 +1370,7 @@ class JobManager(
             consumer.foreach(c =>
               if(desired(producer.getJobVertex) != 0) {
                 producedDataset.setNonDropProbability(
-                  desired(c) / desired(producer.getJobVertex) * 100
+                  desired(c) * 100 / desired(producer.getJobVertex)
                 )
               } else {
                 producedDataset.setNonDropProbability(0)

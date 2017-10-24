@@ -325,7 +325,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			return 0;
 		}
 
-		return Math.min((wantedAc * getCpuLoad()) / currAc, 100);
+		return Math.min((int)((double) wantedAc * getCpuLoad()) / currAc, 100);
 	}
 
 	public int obtainedAc(int wantedCpu) {
@@ -337,18 +337,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			return 100;
 		}
 
-		return Math.min((wantedCpu * getCurrAc()) / getCpuLoad(), 100);
-	}
-
-	public int ac() {
-		int ac = 100;
-
-		// Optimization, by definition, we only need to follow one of the top branches
-		if (inputs.size() == 0){
-			return ac; // It's a source
-		} else {
-			return inputs.get(0).getNonDropProbability() * inputs.get(0).getProducer().ac();
-		}
+		return Math.min((int)((double) wantedCpu * getCurrAc()) / getCpuLoad(), 100);
 	}
 
 	/**

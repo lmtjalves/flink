@@ -247,6 +247,8 @@ public class StreamingJobGraphGenerator {
 
 			setVertexConfig(currentNodeId, config, chainableOutputs, nonChainableOutputs);
 
+			StreamNode vertex = streamGraph.getStreamNode(currentNodeId);
+
 			if (currentNodeId.equals(startNodeId)) {
 
 				config.setChainStart();
@@ -258,6 +260,20 @@ public class StreamingJobGraphGenerator {
 				for (StreamEdge edge : transitiveOutEdges) {
 					connect(startNodeId, edge);
 				}
+
+				jobVertices.get(startNodeId).setAccuracy(vertex.getAccuracy());
+				int ac = 0;
+				int priority = 0;
+
+				if(chainedConfigs.containsKey(startNodeId)) {
+					for(int index : chainedConfigs.get(startNodeId).keySet()) {
+						ac = Math.max(ac, streamGraph.getStreamNode(index).getAccuracy());
+						priority =  Math.max(priority, streamGraph.getStreamNode(index).getPriority());
+					}
+				}
+
+				jobVertices.get(startNodeId).setAccuracy(ac);
+				jobVertices.get(startNodeId).setPriority(priority);
 
 				config.setTransitiveChainedTaskConfigs(chainedConfigs.get(startNodeId));
 

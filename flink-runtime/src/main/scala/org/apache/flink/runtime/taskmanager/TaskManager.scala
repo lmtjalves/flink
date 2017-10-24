@@ -1406,13 +1406,13 @@ class TaskManager(
 
       val cpuLoad = (ManagementFactory.getOperatingSystemMXBean()
         .asInstanceOf[OperatingSystemMXBean])
-        .getSystemCpuLoad.toInt;
+        .getSystemCpuLoad * 100;
 
       currentJobManager foreach { jm =>
         jm ! decorateMessage(Heartbeat(
           instanceID,
           accumulatorEvents,
-          cpuLoad,
+          cpuLoad.toInt,
           tasksMetrics.toMap
         ))
       }
