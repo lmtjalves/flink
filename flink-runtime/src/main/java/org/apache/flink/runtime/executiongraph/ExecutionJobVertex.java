@@ -318,6 +318,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 	public int reqCpu(int wantedAc) {
 		int currAc = getCurrAc();
+		int cpu    = getCpuLoad();
 
 		if(currAc == 0) {
 			if(wantedAc == 0) {
@@ -329,19 +330,29 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			}
 		}
 
-		return Math.min((int)((double) wantedAc * getCpuLoad()) / currAc, 100);
+		return Math.min((int)((double) wantedAc * cpu) / currAc, 100);
 	}
 
 	public int obtainedAc(int wantedCpu) {
-		int cpu = getCpuLoad();
-		if (cpu == 0) {
-			// This will never happen, how is it possible that we have 0% CPU usage
-			// and still processing requests? Only when we are processing no requests
-			// in this case, the obtained accuracy will be 100%
-			return 100;
+		int currAc = getCurrAc();
+		int cpu    = getCpuLoad();
+
+		if(currAc == 0) {
+			if(wantedCpu == 0) {
+				return 0;
+			} else {
+				return 100;
+			}
+		} else if(cpu == 0) {
+			if(wantedCpu == 0) {
+				return currAc;
+			} else {
+				// Never gonna happen
+				return 100;
+			}
 		}
 
-		return Math.min((int)((double) wantedCpu * getCurrAc()) / getCpuLoad(), 100);
+		return Math.min((int)((double) wantedCpu * currAc) / cpu, 100);
 	}
 
 	/**

@@ -1663,6 +1663,7 @@ public class Task implements Runnable, TaskActions {
 							.get(operator).getGroup("KafkaConsumer")
 							.getMetric("records-lag-max");
 
+						previousLag = Math.max(0, lagMeter.getValue().longValue());
 						break;
 					}
 				}
@@ -1681,7 +1682,7 @@ public class Task implements Runnable, TaskActions {
 				long elapsedTime = currTime - lastTime;
 				double res       = elapsedLag / elapsedTime;
 
-				if(previousLag == currLag && currLag != 0) {
+				if(elapsedLag == 0 && currLag != 0) {
 					res = previousLagRate;
 				} else {
 					previousLagRate = res;

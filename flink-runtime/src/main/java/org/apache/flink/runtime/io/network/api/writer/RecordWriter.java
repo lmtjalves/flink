@@ -88,7 +88,7 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 	public void emit(T record) throws IOException, InterruptedException {
 		for (int targetChannel : channelSelector.selectChannels(record, numChannels)) {
-			if(random.nextInt(100) <= targetPartition.getChannelNonDropProbability()) {
+			if(random.nextInt(100) < targetPartition.getChannelNonDropProbability()) {
 				sendToTarget(record, targetChannel);
 				System.out.println("Kept with probability " + targetPartition.getChannelNonDropProbability());
 

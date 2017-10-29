@@ -1272,6 +1272,8 @@ class JobManager(
           case (_, tcpu) => Math.abs((cpu - releasedCpu) - tcpu)
         }
 
+        println("Killing " + taskToKill.toString)
+
         orderedByCpu.remove(taskToKill, taskCpu)
 
         releasedCpu = releasedCpu + taskCpu
@@ -1279,20 +1281,24 @@ class JobManager(
       } while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0)
     }
 
-    def distributeEvenly(tasks: List[ExecutionVertex]): Unit = {
-      var c = 0
+    def distributeEvenly(tasks: List[ExecutionVertex], instance: Instance): Unit = {
+      val tasksReqCpu = tasks.map(t => (t, t.getJobVertex.reqCpu(maxAc(t))))
+      val totalReqCpu = tasksReqCpu.map(_._2).fold(0)(_ + _)
 
-      tasks.map(t => (t, t.getJobVertex.reqCpu(maxAc(t)))).sortBy(_._2).foreach { case (t, req) =>
-        val avail = availCpu(t.getCurrentAssignedResource.getOwner)
-        val cpu   = Math.min(req, avail)
-        val ac    = t.getJobVertex.obtainedAc(cpu)
+      tasksReqCpu.sortBy(_._2).foreach { case (t, req) =>
+        val avail = availCpu(instance)
+        val cpu   = ((req.asInstanceOf[Double] / totalReqCpu) * avail).asInstanceOf[Int]
+
+        val ac = Math.min(t.getJobVertex.obtainedAc(cpu) + t.getJobVertex.minAc(), maxAc(t))
 
         t.getJobVertex.getJobVertex.getQueries.asScala.foreach { q =>
           desired.put(q, Math.min(desired(q), ac))
         }
 
-        availCpu.put(t.getCurrentAssignedResource.getOwner, (avail - cpu))
-        c = c + 1
+        // The cpu that will actually be used
+        val usedCpu = t.getJobVertex.reqCpu(ac)
+
+        availCpu.put(t.getCurrentAssignedResource.getOwner, (avail - usedCpu))
       }
     }
 
@@ -1324,18 +1330,27 @@ class JobManager(
                 total + task.getJobVertex.reqCpu(task.getJobVertex.minAc())
               }
 
+            println(s"req: $reqCpu vs ${availCpu(instance)}")
             if(reqCpu > availCpu(instance)) {
               releaseCpuByKill(
                 reqCpu - availCpu(instance),
                 instance.tasksWithPriority(priority).asScala.filter(_.receivedMetrics()).toList
               )
             }
+
+            // This way, we already guarantee that the availCpu will only be used to improve
+            // accuracy
+            availCpu.put(instance, availCpu(instance) - reqCpu)
           }
         }
 
         tmWithCurrPriority.map(tm => (tm, -slack(tm, priority))).sortBy(_._2)
           .foreach { case (tm, _) =>
-            distributeEvenly(tm.tasksWithPriority(priority).asScala.toList)
+            distributeEvenly(
+              tm.tasksWithPriority(priority).asScala
+                .filter(_.receivedMetrics()).toList,
+              tm
+            )
           }
       }
 
@@ -1370,7 +1385,9 @@ class JobManager(
               .map(_.getTarget.getJobVertex.getJobVertex)
 
             consumer.foreach(c =>
-              if(desired(producer.getJobVertex) != 0) {
+              if(producer.getJobVertex.isInputVertex) {
+                producedDataset.setNonDropProbability(desired(producer.getJobVertex))
+              } else if (desired(producer.getJobVertex) != 0) {
                 producedDataset.setNonDropProbability(
                   desired(c) * 100 / desired(producer.getJobVertex)
                 )
@@ -1386,8 +1403,9 @@ class JobManager(
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
         val probabilities = instance.tasks().values().asScala.map(_.asScala).flatten.map { task =>
           task.getProducedPartitions.asScala.map { case (id, irp) =>
-            (task.getCurrentExecutionAttempt.getAttemptId, id) ->
+            (task.getCurrentExecutionAttempt.getAttemptId, id) -> {
               irp.getIntermediateResult.getNonDropProbability
+            }
           }
         }.flatten.toMap
 
