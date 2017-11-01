@@ -1103,11 +1103,8 @@ class JobManager(
       instanceManager.reportHeartBeat(instanceID)
       instanceManager.getRegisteredInstanceById(instanceID).setCpuLoad(cpuLoad)
 
-      log.info("Received metric:" + tasksMetrics)
-
       // Update all the metrics that we store per task
       tasksMetrics.foreach { case (identifier, metric) =>
-
         currentJobs.get(identifier._1).map { case (executionGraph, _) =>
           executionGraph.setMetrics(
             identifier._2,
@@ -1272,38 +1269,47 @@ class JobManager(
           case (_, tcpu) => Math.abs((cpu - releasedCpu) - tcpu)
         }
 
-        println("Killing " + taskToKill.toString)
-
         orderedByCpu.remove(taskToKill, taskCpu)
-
         releasedCpu = releasedCpu + taskCpu
+
+        log.info(s"KILL;${taskToKill.getIdentifier}")
+
         taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
       } while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0)
     }
 
     def distributeEvenly(tasks: List[ExecutionVertex], instance: Instance): Unit = {
-      val tasksReqCpu = tasks.map(t => (t, t.getJobVertex.reqCpu(maxAc(t))))
-      val totalReqCpu = tasksReqCpu.map(_._2).fold(0)(_ + _)
+      val tasksReqCpu = tasks.map(t =>
+        (t, t.getJobVertex.reqCpu(maxAc(t)) - t.getJobVertex.reqCpu(t.getJobVertex.minAc()))
+      )
+
+      var c = 0
 
       tasksReqCpu.sortBy(_._2).foreach { case (t, req) =>
         val avail = availCpu(instance)
-        val cpu   = ((req.asInstanceOf[Double] / totalReqCpu) * avail).asInstanceOf[Int]
+        val cpu   = Math.min(avail / (tasks.size - c), req)
 
-        val ac = Math.min(t.getJobVertex.obtainedAc(cpu) + t.getJobVertex.minAc(), maxAc(t))
+        val ac = if(cpu == req) {
+          maxAc(t)
+        } else {
+          t.getJobVertex.obtainedAc(cpu) + t.getJobVertex.minAc()
+        }
 
         t.getJobVertex.getJobVertex.getQueries.asScala.foreach { q =>
           desired.put(q, Math.min(desired(q), ac))
         }
 
-        // The cpu that will actually be used
-        val usedCpu = t.getJobVertex.reqCpu(ac)
+        // The cpu that will actually be used (the used cpu was already removed)
+        // val usedCpu = t.getJobVertex.reqCpu(ac)
 
-        availCpu.put(t.getCurrentAssignedResource.getOwner, (avail - usedCpu))
+        log.info(s"DIST_EVEN;${t.getIdentifier};$avail;$ac;$cpu;$req")
+
+        c = c + 1
+        availCpu.put(t.getCurrentAssignedResource.getOwner, (avail - cpu))
       }
     }
 
     priorities.synchronized {
-
       currentJobs.values.map { case (jobGraph, _) =>
         jobGraph.getSinks.asScala.foreach { sink =>
           desired.put(sink.getJobVertex, 100)
@@ -1311,9 +1317,12 @@ class JobManager(
       }
 
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
+        val avail = instance.numCpuCores() * (100 - instance.getCpuLoad) + instance.getTasksCpuLoad
+        log.info(s"TOTAL_AVAIL;${instance.getId};$avail")
+
         availCpu.put(
           instance,
-          instance.numCpuCores() * (100 - instance.getCpuLoad) + instance.getTasksCpuLoad
+          avail
         )
       }
 
@@ -1325,12 +1334,10 @@ class JobManager(
             tmWithCurrPriority += instance
 
             val reqCpu = instance.tasksWithPriority(priority).asScala
-              .filter(_.receivedMetrics())
-              .foldRight(0) { (task, total) =>
+              .filter(_.receivedMetrics()).foldRight(0) { (task, total) =>
                 total + task.getJobVertex.reqCpu(task.getJobVertex.minAc())
               }
 
-            println(s"req: $reqCpu vs ${availCpu(instance)}")
             if(reqCpu > availCpu(instance)) {
               releaseCpuByKill(
                 reqCpu - availCpu(instance),
@@ -1384,18 +1391,27 @@ class JobManager(
               .map(_.asScala.head)
               .map(_.getTarget.getJobVertex.getJobVertex)
 
-            consumer.foreach(c =>
-              if(producer.getJobVertex.isInputVertex) {
-                producedDataset.setNonDropProbability(desired(producer.getJobVertex))
+            consumer.foreach { c =>
+
+              val value = if (producer.getJobVertex.isInputVertex) {
+                desired(producer.getJobVertex)
               } else if (desired(producer.getJobVertex) != 0) {
-                producedDataset.setNonDropProbability(
-                  desired(c) * 100 / desired(producer.getJobVertex)
-                )
+                desired(c) * 100 / desired(producer.getJobVertex)
               } else {
-                producedDataset.setNonDropProbability(0)
+                0
               }
-            )
+
+              log.info(s"DROP_PROB;${producer.getIdentifier};${job.getJobID};${c.getID};$value")
+
+              producedDataset.setNonDropProbability(value)
+            }
           }
+        }
+      }
+
+      currentJobs.values.foreach { case (jobGraph, _) =>
+        jobGraph.getSinks.asScala.foreach { sink =>
+          log.info(s"DESIRED;${sink.getIdentifier};${desired(sink.getJobVertex)}")
         }
       }
 
@@ -1403,6 +1419,7 @@ class JobManager(
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
         val probabilities = instance.tasks().values().asScala.map(_.asScala).flatten.map { task =>
           task.getProducedPartitions.asScala.map { case (id, irp) =>
+
             (task.getCurrentExecutionAttempt.getAttemptId, id) -> {
               irp.getIntermediateResult.getNonDropProbability
             }

@@ -163,6 +163,7 @@ public class Instance implements SlotOwner {
 	}
 
 	public void setCpuLoad(int cpuLoad) {
+		LOG.info("CPU_LOAD;" + instanceId + ";" + cpuLoad);
 		this.cpuLoad = cpuLoad;
 	}
 

@@ -149,6 +149,8 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 
 				if (slot != null) {
 					slot.setLocality(locality);
+
+					LOG.info("SCHEDULED;" + vertex.getIdentifier() + ";" + instanceToUse.getId());
 					return slot;
 				}
 			}

@@ -100,6 +100,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	private SerializedValue<TaskInformation> serializedTaskInformation;
 
 	private InputSplitAssigner splitAssigner;
+
+	private String identifier;
 	
 	public ExecutionJobVertex(
 		ExecutionGraph graph,
@@ -214,6 +216,13 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		}
 		
 		finishedSubtasks = new boolean[parallelism];
+
+		this.identifier = getJobId() + ";" + getJobVertexId();
+		LOG.info("LTASK_NAME;" + identifier + ";" + getName());
+	}
+
+	public String getIdentifier() {
+		return this.identifier;
 	}
 
 	public void setMaxParallelism(int maxParallelismDerived) {
@@ -249,6 +258,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		if(graph.getState() == JobStatus.FAILED || graph.getState() == JobStatus.FAILING
 			|| graph.getState() == JobStatus.CANCELED || graph.getState() == JobStatus.CANCELLING
 			|| graph.getState() == JobStatus.FINISHED || graph.getState() == JobStatus.SUSPENDED) {
+
+			LOG.info("LTASK_CPU;" + identifier + ";" + 0);
 			return 0;
 		}
 
@@ -256,6 +267,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		for(int i = 0; i < taskVertices.length; i++) {
 			maxCpu = Math.max(maxCpu, taskVertices[i].getCpuLoad());
 		}
+
+		LOG.info("LTASK_CPU;" + identifier + ";" + maxCpu);
 
 		return maxCpu;
 	}
@@ -291,15 +304,18 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			}
 		}
 
+		int res = 0;
 		if (upstreamOutputRate <= 0) {
 			// We are processing 100% of the incoming data
-			return 100;
+			res = 100;
 		} else if (downStreamInputRate <= 0) {
 			// We are not processing anything, though we have data on the buffer
-			return 0;
+			res = 0;
 		} else {
-			return Math.min((int) ((downStreamInputRate / upstreamOutputRate) * 100), 100);
+			res = Math.min((int) ((downStreamInputRate / upstreamOutputRate) * 100), 100);
 		}
+
+		return res;
 	}
 
 	/**
@@ -319,40 +335,46 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	public int reqCpu(int wantedAc) {
 		int currAc = getCurrAc();
 		int cpu    = getCpuLoad();
+		int res    = 0;
 
 		if(currAc == 0) {
 			if(wantedAc == 0) {
 				// We don't even need Cpu
-				return 0;
+				res = 0;
 			} else {
 				// We will certainly need infinite Cpu
-				return 100;
+				res = 100;
 			}
+		} else {
+			res = Math.min((int)((double) wantedAc * cpu) / currAc, 100);
 		}
 
-		return Math.min((int)((double) wantedAc * cpu) / currAc, 100);
+		return res;
 	}
 
 	public int obtainedAc(int wantedCpu) {
 		int currAc = getCurrAc();
 		int cpu    = getCpuLoad();
+		int res    = 0;
 
 		if(currAc == 0) {
 			if(wantedCpu == 0) {
-				return 0;
+				res = 0;
 			} else {
-				return 100;
+				res = 100;
 			}
 		} else if(cpu == 0) {
 			if(wantedCpu == 0) {
-				return currAc;
+				res = currAc;
 			} else {
 				// Never gonna happen
-				return 100;
+				res = 100;
 			}
+		} else {
+			res = Math.min((int)((double) wantedCpu * currAc) / cpu, 100);
 		}
 
-		return Math.min((int)((double) wantedCpu * currAc) / cpu, 100);
+		return res;
 	}
 
 	/**
