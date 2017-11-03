@@ -260,6 +260,8 @@ public class Task implements Runnable, TaskActions {
 	/* Measures the input rate provided by Kafka, if it is a source task */
 	private Gauge<Double> kafkaInputRateGauge;
 
+	private Gauge<Double> assignedKafkaPartitions;
+
 	/**
 	 * <p><b>IMPORTANT:</b> This constructor may not start any work that would need to
 	 * be undone in the case of a failing task deployment.</p>
@@ -485,6 +487,11 @@ public class Task implements Runnable, TaskActions {
 						this.kafkaInputRateGauge = (Gauge<Double>) metrics.getOperatorsMetricsGroups()
 							.get("Source: Custom Source").getGroup("KafkaConsumer")
 							.getMetric("records-consumed-rate");
+
+						this.assignedKafkaPartitions = (Gauge<Double>) metrics
+							.getOperatorsMetricsGroups()
+							.get("Source: Custom Source").getGroup("KafkaConsumer")
+							.getMetric("assigned-partitions");
 						break;
 					}
 				}
@@ -494,7 +501,10 @@ public class Task implements Runnable, TaskActions {
 				// The metric doesn't exist yet, we assume 0 messages are being processed
 				return 0;
 			} else {
-				return kafkaInputRateGauge.getValue();
+				double rate = kafkaInputRateGauge.getValue();
+
+				LOG.info("popota: " + rate + ";" + rate / assignedKafkaPartitions.getValue());
+				return rate / assignedKafkaPartitions.getValue();
 			}
 		}
 	}
@@ -1686,10 +1696,10 @@ public class Task implements Runnable, TaskActions {
 					res = previousLagRate;
 				} else {
 					previousLagRate = res;
-				}
 
-				lastTime    = currTime;
-				previousLag = currLag;
+					lastTime    = currTime;
+					previousLag = currLag;
+				}
 
 				return res;
 			} else {

@@ -242,8 +242,6 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		LOG.info("REC_IN_RATE;"	 + identifier + ";" + numRecordsInRate);
 		LOG.info("REC_OUT_RATE;" + identifier + ";" + numRecordsOutRate);
 		LOG.info("LAG_VAR;" 	 + identifier + ";" + inputLagVariation);
-		LOG.info("TASK_CPU;" 	 + identifier + ";" + cpuLoad);
-		LOG.info("TASK_CPU;" 	 + identifier + ";" + cpuLoad);
 	}
 
 	public JobID getJobId() {

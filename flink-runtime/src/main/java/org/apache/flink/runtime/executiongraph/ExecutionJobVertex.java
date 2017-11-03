@@ -283,19 +283,29 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 		if (this.getInputs().size() == 0) {
 			// It's a source task
-			for (int i = 0; i < taskVertices.length; i++) {
-				downStreamInputRate += taskVertices[i].numRecordsInRate();
+			upstreamOutputRate = taskVertices[0].numInputLagVariation();
+			downStreamInputRate = taskVertices[0].numRecordsInRate();
+
+			for(int i = 1; i < taskVertices.length; i++) {
+				if (taskVertices[i].numInputLagVariation() > upstreamOutputRate) {
+					upstreamOutputRate = taskVertices[i].numInputLagVariation();
+					downStreamInputRate = taskVertices[i].numRecordsInRate();
+				}
 			}
 
-			// Compute input rate at the beginning of the buffer
-			upstreamOutputRate = downStreamInputRate + taskVertices[0].numInputLagVariation();
+			upstreamOutputRate = upstreamOutputRate + downStreamInputRate;
+
+			LOG.info("xpto;" + identifier + ";" + upstreamOutputRate + ";" + downStreamInputRate);
+
 		} else {
 			// It's not a source task, the current accuracy equals the difference between
 			// the downstream tasks input rate and the upstream tasks output rate
 			for (IntermediateResult result : this.getInputs()) {
 				ExecutionVertex[] vertexes = result.getProducer().getTaskVertices();
+				double nonDropFactor = ((double) result.getNonDropProbability()) / 100D;
+
 				for (int i = 0; i < vertexes.length; i++) {
-					upstreamOutputRate += vertexes[i].numRecordsOutRate();
+					upstreamOutputRate += vertexes[i].numRecordsOutRate() * nonDropFactor;
 				}
 			}
 
@@ -314,6 +324,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		} else {
 			res = Math.min((int) ((downStreamInputRate / upstreamOutputRate) * 100), 100);
 		}
+
+		LOG.info("CurrAC;" + identifier + ";" + res);
 
 		return res;
 	}
