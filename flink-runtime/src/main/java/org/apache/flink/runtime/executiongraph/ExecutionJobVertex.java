@@ -348,48 +348,55 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	}
 
 	public int reqCpu(int wantedAc) {
-		int currAc = getCurrAc();
-		int cpu    = getCpuLoad();
-		int res    = 0;
+		int currAc  = getCurrAc();
+		int currCpu = getCpuLoad();
+		int reqCpu  = 0;
 
+		// * The currAc can only be zero when the rate difference is extremely high. In this case we
+		//   need a lot of cpu, let's say 100 %.
+		// * The currCpu can be zero when:
+		//		* Nothing is being processed (no input rate), therefore, we may need cpu to process
+		//        more stuff, but we don't know how much. Our best bet is 0.
+		//      * Something, but not enough to consume > 0 cpu, therefore our best bet is still 0.
 		if(currAc == 0) {
+			// The min ac can be actually 0
 			if(wantedAc == 0) {
-				// We don't even need Cpu
-				res = 0;
+				reqCpu = 0;
 			} else {
-				// We will certainly need infinite Cpu
-				res = 100;
+				reqCpu = 100;
 			}
 		} else {
-			res = Math.min((int)((double) wantedAc * cpu) / currAc, 100);
+			reqCpu = Math.min((int)((double) wantedAc * currCpu) / currAc, 100);
 		}
 
-		return res;
+		return reqCpu;
 	}
 
-	public int obtainedAc(int wantedCpu) {
-		int currAc = getCurrAc();
-		int cpu    = getCpuLoad();
-		int res    = 0;
+	public int obtainedAc(int providedCpu) {
+		int currAc  = getCurrAc();
+		int currCpu = getCpuLoad();
+		int obtAc   = 0;
 
 		if(currAc == 0) {
-			if(wantedCpu == 0) {
-				res = 0;
+			// This should be as similar as possible to what we do in reqCpu()
+			if(providedCpu == 0) {
+				obtAc = 0;
 			} else {
-				res = 100;
+				obtAc = 100;
 			}
-		} else if(cpu == 0) {
-			if(wantedCpu == 0) {
-				res = currAc;
+		} else if(currCpu == 0) {
+			// We need to be able to handle this problem
+			if(providedCpu == 0) {
+				obtAc = currAc;
 			} else {
 				// Never gonna happen
-				res = 100;
+				obtAc = 100;
 			}
 		} else {
-			res = Math.min((int)((double) wantedCpu * currAc) / cpu, 100);
+			obtAc = Math.min((int)((double) providedCpu * currAc) / currCpu, 100);
 		}
 
-		return res;
+		return obtAc;
 	}
 
 	/**
