@@ -62,6 +62,8 @@ import org.apache.flink.runtime.jobgraph.tasks.StatefulTask;
 import org.apache.flink.runtime.jobgraph.tasks.StoppableTask;
 import org.apache.flink.runtime.jobmanager.PartitionProducerDisposedException;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.metrics.groups.AbstractMetricGroup;
+import org.apache.flink.runtime.metrics.groups.OperatorMetricGroup;
 import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
 import org.apache.flink.runtime.query.TaskKvStateRegistry;
 import org.apache.flink.runtime.state.TaskStateHandles;
@@ -248,19 +250,35 @@ public class Task implements Runnable, TaskActions {
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
 	private long taskCancellationInterval;
 
-	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
+	/**
+	 * Initialized from the Flink configuration. May also be set at the ExecutionConfig
+	 */
 	private long taskCancellationTimeout;
 
-	/* Measures the CPU usage of the task */
+	/**
+	 * Measures the CPU usage of the task
+	 */
 	private CpuLoadGauge cpuLoadGauge;
 
-	/* Measures the Lag rate of the task on Apache Kafka, if it is a source task */
-	private KafkaInputRateGauge kafkaLagGauge;
+	/**
+	 * Measures the Lag rate of the task on Apache Kafka, if it is a source task
+	 */
+	private KafkaInputRateGauge kafkaLagRateGauge;
 
-	/* Measures the input rate provided by Kafka, if it is a source task */
+	/**
+	 * Measures the input rate provided by Kafka, if it is a source task
+	 */
 	private Gauge<Double> kafkaInputRateGauge;
 
+	/**
+	 * 	Provides the amount of partitions Kafka partitions this task is consuming from.
+	 */
 	private Gauge<Double> assignedKafkaPartitions;
+
+	/**
+	 * Measures the maximum lag of the Kafka partitions this task is consuming from.
+	 */
+	private Gauge<Double> kafkaLagGauge;
 
 	/**
 	 * <p><b>IMPORTANT:</b> This constructor may not start any work that would need to
@@ -407,8 +425,8 @@ public class Task implements Runnable, TaskActions {
 			this.metrics.getIOMetricGroup().initializeBufferMetrics(this);
 		}
 
-		this.cpuLoadGauge  = new CpuLoadGauge(executingThread);
-		this.kafkaLagGauge = new KafkaInputRateGauge(metrics);
+		this.cpuLoadGauge  	   = new CpuLoadGauge(executingThread);
+		this.kafkaLagRateGauge = new KafkaInputRateGauge();
 	}
 
 	// ------------------------------------------------------------------------
@@ -478,35 +496,56 @@ public class Task implements Runnable, TaskActions {
 		if(inputGates.length != 0) {
 			// The task is not an input task, kafka consume rate is irrelevant
 			return 0;
-		} else {
-			if(kafkaInputRateGauge == null) {
-				// Try to fetch the metric if it exists
-				for(String operator : metrics.getOperatorsMetricsGroups().keySet()) {
-					// Check that is the source operator
-					if(operator.startsWith("Source:")) {
-						this.kafkaInputRateGauge = (Gauge<Double>) metrics.getOperatorsMetricsGroups()
-							.get("Source: Custom Source").getGroup("KafkaConsumer")
-							.getMetric("records-consumed-rate");
-
-						this.assignedKafkaPartitions = (Gauge<Double>) metrics
-							.getOperatorsMetricsGroups()
-							.get("Source: Custom Source").getGroup("KafkaConsumer")
-							.getMetric("assigned-partitions");
-						break;
-					}
-				}
-			}
-
-			if(kafkaInputRateGauge == null) {
-				// The metric doesn't exist yet, we assume 0 messages are being processed
-				return 0;
-			} else {
-				double rate = kafkaInputRateGauge.getValue();
-
-				LOG.info("popota: " + rate + ";" + rate / assignedKafkaPartitions.getValue());
-				return rate / assignedKafkaPartitions.getValue();
-			}
 		}
+
+		if(kafkaInputRateGauge == null) {
+			kafkaInputRateGauge 	= kafkaMetric("records-consumed-rate");
+			assignedKafkaPartitions = kafkaMetric("assigned-partitions");
+		}
+
+		if(kafkaInputRateGauge == null || assignedKafkaPartitions == null) {
+			// The metric doesn't exist yet, we assume 0 messages are being processed
+			return 0;
+		} else {
+			double rate = kafkaInputRateGauge.getValue();
+
+			LOG.info("popota: " + rate + ";" + rate / assignedKafkaPartitions.getValue());
+			return rate / assignedKafkaPartitions.getValue();
+		}
+	}
+
+	/**
+	 * Returns a kafka metric with the provided name, otherwise returns null.
+	 */
+	private <T> Gauge<T> kafkaMetric(String metricName) {
+		// Get the metrics group from the first operator (which should be the source operator)
+		OperatorMetricGroup sourceMetrics = metrics.getOperatorsMetricsGroups().values()
+			.iterator().next();
+
+		AbstractMetricGroup kafkaMetrics = sourceMetrics.getGroup("KafkaConsumer");
+		if(kafkaMetrics != null) {
+			return (Gauge<T>) kafkaMetrics.getMetric(metricName);
+		}
+
+		return null;
+	}
+
+	/**
+	 * Returns the current kafka max lag size from all the partitions this task is consuming from.
+	 * Returns null if the metric is not yet available.
+	 */
+	public Long getKafkaLag() {
+		if (inputGates.length != 0) {
+			// This task is not a source, thus it doesn't consume from Kafka
+			return 0L;
+		}
+
+		// Check if we need to fetch the metric
+		if(kafkaLagGauge == null) {
+			kafkaLagGauge = kafkaMetric("records-lag-max");
+		}
+
+		return kafkaLagGauge == null ? null : Math.max(kafkaLagGauge.getValue().longValue(), 0);
 	}
 
 	/**
@@ -517,7 +556,7 @@ public class Task implements Runnable, TaskActions {
 			// The task is not an input task, lag variation is irrelevant
 			return 0;
 		} else {
-			return kafkaLagGauge.getValue();
+			return kafkaLagRateGauge.getValue();
 		}
 	}
 
@@ -1639,11 +1678,8 @@ public class Task implements Runnable, TaskActions {
 	 * The rate is computed in records/sec.
 	 */
 	private class KafkaInputRateGauge implements Gauge<Double> {
-		// In order to get the max lag metric from Kafka
-		private TaskMetricGroup metrics;
-
-		// The registered metric that computes Kafka max lag
-		private Gauge<Double> lagMeter;
+		// Whether we obtained the lag once yet, or not
+		private Boolean gotFirstRead;
 
 		// So that we compute the time delta (in seconds)
 		private long lastTime;
@@ -1653,59 +1689,55 @@ public class Task implements Runnable, TaskActions {
 
 		private double previousLagRate;
 
-		public KafkaInputRateGauge(TaskMetricGroup metrics) {
+		public KafkaInputRateGauge() {
 			this.lastTime        = System.currentTimeMillis() / 1000;
-			this.metrics         = metrics;
 			this.previousLag     = 0L;
-			this.lagMeter        = null;
 			this.previousLagRate = 0D;
+			this.gotFirstRead    = false;
 		}
 
 		@Override
 		public Double getValue() {
-			// The metric may not yet be registered into the Task metrics group
-			// if it's not, we need to try to acquire it
-			if(lagMeter == null) {
-				for(String operator : metrics.getOperatorsMetricsGroups().keySet()) {
-					// Get the source operator (name starts with "Source:" by convention
-					if(operator.startsWith("Source:")) {
-						lagMeter = (Gauge<Double>) metrics.getOperatorsMetricsGroups()
-							.get(operator).getGroup("KafkaConsumer")
-							.getMetric("records-lag-max");
+			Long currentLag = getKafkaLag();
+			long currTime = System.currentTimeMillis() / 1000;
 
-						previousLag = Math.max(0, lagMeter.getValue().longValue());
-						break;
-					}
-				}
-			}
-
-			// If we have/got the metric, we can now compute how it changes
-			if(lagMeter != null) {
-				long currTime = System.currentTimeMillis() / 1000;
-
-				// Sometimes the lag is -Infinite, when transforming this into a long value
-				// it becomes Long.MinimumValue, which is not acceptable, thus we need to
-				// guarantee it is always >= 0
-				long currLag  = Math.max(0, lagMeter.getValue().longValue());
-
-				long elapsedLag  = currLag  - previousLag;
-				long elapsedTime = currTime - lastTime;
-				double res       = elapsedLag / elapsedTime;
-
-				if(elapsedLag == 0 && currLag != 0) {
-					res = previousLagRate;
-				} else {
-					previousLagRate = res;
-
-					lastTime    = currTime;
-					previousLag = currLag;
-				}
-
-				return res;
-			} else {
-				// Otherwise the lag rate is zero (we assume no messages in queue)
+			if(currentLag == null) {
+				// If we don't yet have access to this metric, we assume the lag variation rate
+				// is 0.
 				return 0D;
 			}
+
+			if(!gotFirstRead) {
+				// In case this is the first time we are reading the lag, we will force the rate
+				// to be zero. This is good for the case when the input queue already have some messages
+				// in it
+				previousLag  = currentLag;
+				gotFirstRead = true;
+			}
+
+			// Sometimes the lag is -Infinite, when transforming this into a long value
+			// it becomes Long.MinimumValue, which is not acceptable, thus we need to
+			// guarantee it is always >= 0
+			currentLag  = Math.max(0, currentLag);
+
+			long elapsedLag  = currentLag - previousLag;
+			long elapsedTime = currTime - lastTime;
+			double res       = elapsedLag / elapsedTime;
+
+			// This is an hack, if the lag doesn't change, and it's not zero,
+			// we keep the previous lag rate, and the previous current time and lag
+			// We need this because the Kafka metric may not be updated with the
+			// same frequency as the this method is invoked
+			if(elapsedLag == 0 && currentLag != 0) {
+				res = previousLagRate;
+			} else {
+				previousLagRate = res;
+
+				lastTime    = currTime;
+				previousLag = currentLag;
+			}
+
+			return res;
 		}
 	}
 }

@@ -560,9 +560,17 @@ public class ExecutionGraph implements AccessExecutionGraph, Archiveable<Archive
 		int cpuLoad,
 		Double numRecordsInRate,
 		Double numRecordsOutRate,
-		Double inputLagVariation
+		Double inputLagVariation,
+		Long lag
 	) {
-		this.tasks.get(jobVertex).setMetrics(vertexId, cpuLoad, numRecordsInRate, numRecordsOutRate, inputLagVariation);
+		this.tasks.get(jobVertex).setMetrics(
+			vertexId,
+			cpuLoad,
+			numRecordsInRate,
+			numRecordsOutRate,
+			inputLagVariation,
+			lag
+		);
 	}
 
 	public boolean receivedMetrics() {

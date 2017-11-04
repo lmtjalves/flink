@@ -1380,6 +1380,13 @@ class TaskManager(
 
             val ioMetrics = task.getMetricGroup.getIOMetricGroup.createSnapshot()
             if(task.getAllInputGates.size == 0) {
+              // No need to multiple by the amount of partitions, since we only provide
+              // metrics about one partition
+              val lag: Long = Option(task.getKafkaLag()) match {
+                case Some(l) => l
+                case _       => 0
+              }
+
               // If the task is a source task, we will send the Kafka related metrics
               // we assume all source tasks consume from Kafka (it's a restriction, since
               // Kafka is the only source that provides some metrics we can work with)
@@ -1387,13 +1394,15 @@ class TaskManager(
                 task.getCpuLoad,
                 task.getKafkaConsumeRate,
                 ioMetrics.getNumRecordsOutPerSecond,
-                task.getKafkaLagVariation
+                task.getKafkaLagVariation,
+                lag
               );
             } else {
               tasksMetrics += taskId -> HeartbeatTaskMetrics(
                 task.getCpuLoad,
                 ioMetrics.getNumRecordsInPerSecond,
                 ioMetrics.getNumRecordsOutPerSecond,
+                0,
                 0
               );
             }

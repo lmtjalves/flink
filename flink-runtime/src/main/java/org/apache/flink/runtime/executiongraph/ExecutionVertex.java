@@ -111,6 +111,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	// Whether we already received metrics or not from the task
 	private boolean receivedMetrics;
 
+	private long lag;
+
 	private String identifier;
 
 
@@ -185,10 +187,11 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 		// Let's at the beginning that this is the subtask cpuLoad
 		this.cpuLoad 		   = 100;
-		this.numRecordsInRate  = new Double(0);
-		this.numRecordsOutRate = new Double(0);
-		this.inputLagVariation = new Double(0);
+		this.numRecordsInRate  = 0D;
+		this.numRecordsOutRate = 0D;
+		this.inputLagVariation = 0D;
 		this.receivedMetrics   = false;
+		this.lag 			   = 0L;
 
 		this.identifier = getJobId() + ";" + jobVertex.getJobVertexId() + ";" + subTaskIndex;
 
@@ -229,19 +232,22 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		int cpuLoad,
 		Double numRecordsInRate,
 		Double numRecordsOutRate,
-		Double inputLagVariation
+		Double inputLagVariation,
+		Long lag
 	) {
 		this.receivedMetrics   = true;
 		this.cpuLoad 		   = cpuLoad;
 		this.numRecordsInRate  = numRecordsInRate;
 		this.numRecordsOutRate = numRecordsOutRate;
 		this.inputLagVariation = inputLagVariation;
+		this.lag 			   = lag;
 
 		// Log the received metrics
 		LOG.info("TASK_CPU;" 	 + identifier + ";" + cpuLoad);
 		LOG.info("REC_IN_RATE;"	 + identifier + ";" + numRecordsInRate);
 		LOG.info("REC_OUT_RATE;" + identifier + ";" + numRecordsOutRate);
 		LOG.info("LAG_VAR;" 	 + identifier + ";" + inputLagVariation);
+		LOG.info("LAG;" 	     + identifier + ";" + lag);
 	}
 
 	public JobID getJobId() {

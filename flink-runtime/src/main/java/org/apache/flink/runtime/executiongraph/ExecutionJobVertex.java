@@ -319,8 +319,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			// We are processing 100% of the incoming data
 			res = 100;
 		} else if (downStreamInputRate <= 0) {
-			// We are not processing anything, though we have data on the buffer
-			res = 0;
+			// This happens when the app just started
+			res = 100;
 		} else {
 			res = Math.min((int) ((downStreamInputRate / upstreamOutputRate) * 100), 100);
 		}
@@ -399,10 +399,17 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		int cpuLoad,
 		Double numRecordsInRate,
 		Double numRecordsOutRate,
-		Double inputLagVariation
+		Double inputLagVariation,
+		Long lag
 	) {
 		if(vertexId >= 0 && vertexId < taskVertices.length) {
-			taskVertices[vertexId].setMetrics(cpuLoad, numRecordsInRate, numRecordsOutRate, inputLagVariation);
+			taskVertices[vertexId].setMetrics(
+				cpuLoad,
+				numRecordsInRate,
+				numRecordsOutRate,
+				inputLagVariation,
+				lag
+			);
 		}
 	}
 

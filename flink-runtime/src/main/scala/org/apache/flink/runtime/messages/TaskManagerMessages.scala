@@ -63,7 +63,8 @@ object TaskManagerMessages {
     cpuLoad: Int,
     numRecordsInRate: Double,
     numRecordsOutRate: Double,
-    inputLagVariation: Double
+    inputLagVariation: Double,
+    lag: Long
   )
 
   /**
