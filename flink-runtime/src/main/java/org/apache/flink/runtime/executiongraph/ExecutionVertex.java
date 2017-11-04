@@ -220,7 +220,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		return this.numRecordsOutRate;
 	}
 
-	public Double numInputLagVariation() {
+	public Double inputLagRate() {
 		return this.inputLagVariation;
 	}
 

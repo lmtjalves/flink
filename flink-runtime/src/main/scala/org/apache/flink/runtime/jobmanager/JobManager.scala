@@ -1230,13 +1230,19 @@ class JobManager(
    * Re-tunes all the load shedders in the current executing jobs.
    */
   private def tuneLoadShedders(): Unit = {
-    log.info("Tunning Load Shedders")
+    log.info("Start Tuning")
 
     // The desired accuracy for each query (for all applications)
     val desired  = mutable.Map.empty[JobVertex, Int]
 
     // Available CPU % that each Instance has available
     val availCpu = mutable.Map.empty[SlotOwner, Int]
+
+    // Cpu being used by task (works as a cache)
+    val taskCpuLoadCache = mutable.Map.empty[ExecutionJobVertex, Int]
+
+    // CurrAc being used by task (works as a cache)
+    val currAcCache = mutable.Map.empty[ExecutionJobVertex, Int]
 
     /**
      * The maximum accuracy the task must provide in order to have the desired accuracy for the
@@ -1258,12 +1264,57 @@ class JobManager(
 
     def slack(instance: SlotOwner, priority: Int): Int = instance.tasksWithPriority(priority)
       .asScala.foldRight(0) { (task, total) =>
-        total + task.getJobVertex.reqCpu(maxAc(task)) - minCanGet(task)
+        total + reqCpu(task.getJobVertex, maxAc(task)) - minCanGet(task)
       }
+
+    def reqCpu(task: ExecutionJobVertex, wantedAc: Int): Int = {
+      val currAc  = currAcCache.get(task).get
+      val currCpu = taskCpuLoadCache.get(task).get
+
+      // * The currAc can only be zero when the rate difference is extremely high. In this case we
+      //   need a lot of cpu, let's say 100 %.
+      // * The currCpu can be zero when:
+      // * Nothing is being processed (no input rate), therefore, we may need cpu to process
+      // more stuff, but we don't know how much. Our best bet is 0.
+      // * Something, but not enough to consume > 0 cpu, therefore our best bet is still 0.
+      if(currAc == 0) {
+        if(wantedAc == 0) {
+          0
+        } else {
+          100
+        }
+      } else {
+        Math.min((wantedAc.toDouble * currCpu) / currAc, 100).toInt
+      }
+    }
+
+    def obtainedAc(task: ExecutionJobVertex, providedCpu: Int): Int = {
+      val currAc  = currAcCache.get(task).get
+      val currCpu = taskCpuLoadCache.get(task).get
+
+      if(currAc == 0) {
+        // This should be as similar as possible to what we do in reqCpu()
+        if(providedCpu == 0) {
+          0
+        } else {
+          100
+        }
+      } else if(currCpu == 0) {
+        // We need to be able to handle this problem
+        if(providedCpu == 0) {
+          currAc
+        } else {
+          // Never gonna happen
+          100
+        }
+      } else {
+        Math.min((providedCpu.toDouble * currAc) / currCpu, 100).toInt
+      }
+    }
 
     def releaseCpuByKill(cpu: Int, tasks: List[ExecutionVertex]): Unit = {
       var releasedCpu  = 0
-      val orderedByCpu = mutable.Set(tasks.map(t => (t, t.getCpuLoad)): _*)
+      val orderedByCpu = mutable.Set(tasks.map(t => (t, taskCpuLoadCache(t.getJobVertex))): _*)
 
       do {
         val (taskToKill, taskCpu) = orderedByCpu.minBy {
@@ -1281,7 +1332,7 @@ class JobManager(
 
     def distributeEvenly(tasks: List[ExecutionVertex], instance: Instance): Unit = {
       val tasksReqCpu = tasks.map(t =>
-        (t, t.getJobVertex.reqCpu(maxAc(t)) - t.getJobVertex.reqCpu(t.getJobVertex.minAc()))
+        (t, reqCpu(t.getJobVertex, maxAc(t)) - reqCpu(t.getJobVertex, t.getJobVertex.minAc()))
       )
 
       var c = 0
@@ -1293,7 +1344,7 @@ class JobManager(
         val ac = if(cpu == req) {
           maxAc(t)
         } else {
-          t.getJobVertex.obtainedAc(cpu) + t.getJobVertex.minAc()
+          obtainedAc(t.getJobVertex, cpu) + t.getJobVertex.minAc()
         }
 
         t.getJobVertex.getJobVertex.getQueries.asScala.foreach { q =>
@@ -1311,7 +1362,7 @@ class JobManager(
     }
 
     priorities.synchronized {
-      currentJobs.values.map { case (jobGraph, _) =>
+      currentJobs.values.foreach { case (jobGraph, _) =>
         jobGraph.getSinks.asScala.foreach { sink =>
           desired.put(sink.getJobVertex, 100)
         }
@@ -1327,6 +1378,14 @@ class JobManager(
         )
       }
 
+      // Fill the caches
+      currentJobs.values.foreach { case (jobGraph, _) =>
+        jobGraph.getAllVertices.values().asScala.foreach { vertex =>
+          taskCpuLoadCache.put(vertex, vertex.getCpuLoad)
+          currAcCache.put(vertex, vertex.getCurrAc)
+        }
+      }
+
       priorities.foreach { priority =>
         val tmWithCurrPriority = mutable.MutableList.empty[Instance]
 
@@ -1334,21 +1393,20 @@ class JobManager(
           if(instance.numTasksWithPriority(priority) != 0) {
             tmWithCurrPriority += instance
 
-            val reqCpu = instance.tasksWithPriority(priority).asScala
-              .filter(_.receivedMetrics()).foldRight(0) { (task, total) =>
-                total + task.getJobVertex.reqCpu(task.getJobVertex.minAc())
+            val tasksWithPriority = instance.tasksWithPriority(priority).asScala
+              .filter(_.receivedMetrics())
+
+            val requiredCpu = tasksWithPriority.foldRight(0) { (task, total) =>
+                total + reqCpu(task.getJobVertex, task.getJobVertex.minAc())
               }
 
-            if(reqCpu > availCpu(instance)) {
-              releaseCpuByKill(
-                reqCpu - availCpu(instance),
-                instance.tasksWithPriority(priority).asScala.filter(_.receivedMetrics()).toList
-              )
+            if(requiredCpu > availCpu(instance)) {
+              releaseCpuByKill(requiredCpu - availCpu(instance), tasksWithPriority.toList)
             }
 
             // This way, we already guarantee that the availCpu will only be used to improve
             // accuracy
-            availCpu.put(instance, availCpu(instance) - reqCpu)
+            availCpu.put(instance, availCpu(instance) - requiredCpu)
           }
         }
 
@@ -1432,6 +1490,8 @@ class JobManager(
         ))
       }
     }
+
+    log.info("Finished Tuning")
   }
 
   /**

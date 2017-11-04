@@ -249,6 +249,12 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		inputsLookup.get(producerId).setNonDropProbability(p);
 	}
 
+	public boolean notRunning() {
+		return graph.getState() == JobStatus.FAILED   || graph.getState() == JobStatus.FAILING
+			|| graph.getState() == JobStatus.CANCELED || graph.getState() == JobStatus.CANCELLING
+			|| graph.getState() == JobStatus.FINISHED || graph.getState() == JobStatus.SUSPENDED;
+	}
+
 	/**
 	 * As defined in equation (6) the cpu load of a task corresponds to the maximum cpu load of it's
 	 * task instance at the current instant.
@@ -256,10 +262,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 */
 	public int getCpuLoad() {
 		// If the task is not running/starting, then it's not consuming any resources at all
-		if(graph.getState() == JobStatus.FAILED || graph.getState() == JobStatus.FAILING
-			|| graph.getState() == JobStatus.CANCELED || graph.getState() == JobStatus.CANCELLING
-			|| graph.getState() == JobStatus.FINISHED || graph.getState() == JobStatus.SUSPENDED) {
-
+		if(notRunning()) {
 			LOG.info("LTASK_CPU;" + identifier + ";" + 0);
 			return 0;
 		}
@@ -285,12 +288,12 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 		if (this.getInputs().size() == 0) {
 			// It's a source task
-			upstreamOutputRate 	= taskVertices[0].numInputLagVariation();
+			upstreamOutputRate 	= taskVertices[0].inputLagRate();
 			downStreamInputRate = taskVertices[0].numRecordsInRate();
 
 			for(int i = 1; i < taskVertices.length; i++) {
-				if (taskVertices[i].numInputLagVariation() > upstreamOutputRate) {
-					upstreamOutputRate 	= taskVertices[i].numInputLagVariation();
+				if (taskVertices[i].inputLagRate() > upstreamOutputRate) {
+					upstreamOutputRate 	= taskVertices[i].inputLagRate();
 					downStreamInputRate = taskVertices[i].numRecordsInRate();
 				}
 			}
@@ -345,58 +348,6 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 */
 	public int priority() {
 		return jobVertex.getPriority();
-	}
-
-	public int reqCpu(int wantedAc) {
-		int currAc  = getCurrAc();
-		int currCpu = getCpuLoad();
-		int reqCpu  = 0;
-
-		// * The currAc can only be zero when the rate difference is extremely high. In this case we
-		//   need a lot of cpu, let's say 100 %.
-		// * The currCpu can be zero when:
-		//		* Nothing is being processed (no input rate), therefore, we may need cpu to process
-		//        more stuff, but we don't know how much. Our best bet is 0.
-		//      * Something, but not enough to consume > 0 cpu, therefore our best bet is still 0.
-		if(currAc == 0) {
-			// The min ac can be actually 0
-			if(wantedAc == 0) {
-				reqCpu = 0;
-			} else {
-				reqCpu = 100;
-			}
-		} else {
-			reqCpu = Math.min((int)((double) wantedAc * currCpu) / currAc, 100);
-		}
-
-		return reqCpu;
-	}
-
-	public int obtainedAc(int providedCpu) {
-		int currAc  = getCurrAc();
-		int currCpu = getCpuLoad();
-		int obtAc   = 0;
-
-		if(currAc == 0) {
-			// This should be as similar as possible to what we do in reqCpu()
-			if(providedCpu == 0) {
-				obtAc = 0;
-			} else {
-				obtAc = 100;
-			}
-		} else if(currCpu == 0) {
-			// We need to be able to handle this problem
-			if(providedCpu == 0) {
-				obtAc = currAc;
-			} else {
-				// Never gonna happen
-				obtAc = 100;
-			}
-		} else {
-			obtAc = Math.min((int)((double) providedCpu * currAc) / currCpu, 100);
-		}
-
-		return obtAc;
 	}
 
 	/**
