@@ -252,6 +252,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	/**
 	 * As defined in equation (6) the cpu load of a task corresponds to the maximum cpu load of it's
 	 * task instance at the current instant.
+	 * Can be cached.
 	 */
 	public int getCpuLoad() {
 		// If the task is not running/starting, then it's not consuming any resources at all
@@ -276,19 +277,20 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	/**
 	 * The accuracy that would be provided if the load shedder was tuned in such way that the throughput
 	 * of the task is maximized, i.e. the amount of input tuples equals the amount of output tuples.
+	 * Can be cached.
 	 */
 	public int getCurrAc() {
-		double upstreamOutputRate = 0;
+		double upstreamOutputRate  = 0;
 		double downStreamInputRate = 0;
 
 		if (this.getInputs().size() == 0) {
 			// It's a source task
-			upstreamOutputRate = taskVertices[0].numInputLagVariation();
+			upstreamOutputRate 	= taskVertices[0].numInputLagVariation();
 			downStreamInputRate = taskVertices[0].numRecordsInRate();
 
 			for(int i = 1; i < taskVertices.length; i++) {
 				if (taskVertices[i].numInputLagVariation() > upstreamOutputRate) {
-					upstreamOutputRate = taskVertices[i].numInputLagVariation();
+					upstreamOutputRate 	= taskVertices[i].numInputLagVariation();
 					downStreamInputRate = taskVertices[i].numRecordsInRate();
 				}
 			}
@@ -302,7 +304,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			// the downstream tasks input rate and the upstream tasks output rate
 			for (IntermediateResult result : this.getInputs()) {
 				ExecutionVertex[] vertexes = result.getProducer().getTaskVertices();
-				double nonDropFactor = ((double) result.getNonDropProbability()) / 100D;
+				double nonDropFactor 	   = ((double) result.getNonDropProbability()) / 100D;
 
 				for (int i = 0; i < vertexes.length; i++) {
 					upstreamOutputRate += vertexes[i].numRecordsOutRate() * nonDropFactor;
@@ -319,7 +321,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			// We are processing 100% of the incoming data
 			res = 100;
 		} else if (downStreamInputRate <= 0) {
-			// This happens when the app just started
+			// This happens when the app just started and the downstream
+			// didn't received any records yet
 			res = 100;
 		} else {
 			res = Math.min((int) ((downStreamInputRate / upstreamOutputRate) * 100), 100);
