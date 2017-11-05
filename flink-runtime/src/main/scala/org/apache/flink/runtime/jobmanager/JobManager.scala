@@ -1325,6 +1325,7 @@ class JobManager(
           releasedCpu = releasedCpu + taskCpu
 
           log.info(s"KILL;${taskToKill.getIdentifier}")
+
           taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
         }
       }
