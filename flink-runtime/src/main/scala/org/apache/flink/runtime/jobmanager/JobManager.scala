@@ -51,7 +51,7 @@ import org.apache.flink.runtime.execution.librarycache.BlobLibraryCacheManager
 import org.apache.flink.runtime.executiongraph.restart.RestartStrategyFactory
 import org.apache.flink.runtime.executiongraph._
 import org.apache.flink.runtime.instance.{AkkaActorGateway, Instance, InstanceID, InstanceManager}
-import org.apache.flink.runtime.jobgraph._
+import org.apache.flink.runtime.jobgraph.{tasks, _}
 import org.apache.flink.runtime.jobmanager.SubmittedJobGraphStore.SubmittedJobGraphListener
 import org.apache.flink.runtime.jobmanager.scheduler.{OptimisticScheduler => FlinkScheduler}
 import org.apache.flink.runtime.jobmanager.slots.{ActorTaskManagerGateway, SlotOwner}
@@ -1312,31 +1312,51 @@ class JobManager(
       }
     }
 
-    def releaseCpuByKill(cpu: Int, tasks: List[ExecutionVertex]): Unit = {
+    def releaseCpuByKill(instance: Instance, cpuToRelease: Int): Int = {
       var releasedCpu  = 0
-      val orderedByCpu = mutable.Set(tasks.map(t => (t, taskCpuLoadCache(t.getJobVertex))): _*)
 
-      do {
-        val (taskToKill, taskCpu) = orderedByCpu.minBy {
-          case (_, tcpu) => Math.abs((cpu - releasedCpu) - tcpu)
+      def doRelease(tasks: mutable.Set[(ExecutionVertex, Int)]): Unit = {
+        while(tasks.nonEmpty && cpuToRelease - releasedCpu > 0) {
+          val (taskToKill, taskCpu) = tasks.minBy {
+            case (_, tcpu) => Math.abs((cpuToRelease - releasedCpu) - tcpu)
+          }
+
+          tasks.remove(taskToKill, taskCpu)
+          releasedCpu = releasedCpu + taskCpu
+
+          log.info(s"KILL;${taskToKill.getIdentifier}")
+          taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
+        }
+      }
+
+      instance.getSortedPriorities.asScala.foreach { priority =>
+        val tasks = instance.tasksWithPriority(priority).asScala.map { task =>
+          task -> taskCpuLoadCache(task.getJobVertex)
         }
 
-        orderedByCpu.remove(taskToKill, taskCpu)
-        releasedCpu = releasedCpu + taskCpu
+        if(cpuToRelease - releasedCpu <= 0) {
+          return releasedCpu
+        } else {
+          doRelease(tasks)
+        }
+      }
 
-        log.info(s"KILL;${taskToKill.getIdentifier}")
-
-        taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
-      } while(orderedByCpu.nonEmpty && cpu - releasedCpu > 0)
+      releasedCpu
     }
 
+    /**
+     * Distributes the remaining available cpu in a fair way, to all the tasks in the provided
+     * list.
+     */
     def distributeEvenly(tasks: List[ExecutionVertex], instance: Instance): Unit = {
+      // Quick exit
+      if(availCpu(instance) <= 0) return
+
       val tasksReqCpu = tasks.map(t =>
         (t, reqCpu(t.getJobVertex, maxAc(t)) - reqCpu(t.getJobVertex, t.getJobVertex.minAc()))
       )
 
       var c = 0
-
       tasksReqCpu.sortBy(_._2).foreach { case (t, req) =>
         val avail = availCpu(instance)
         val cpu   = Math.min(avail / (tasks.size - c), req)
@@ -1351,13 +1371,10 @@ class JobManager(
           desired.put(q, Math.min(desired(q), ac))
         }
 
-        // The cpu that will actually be used (the used cpu was already removed)
-        // val usedCpu = t.getJobVertex.reqCpu(ac)
-
         log.info(s"DIST_EVEN;${t.getIdentifier};$avail;$ac;$cpu;$req")
+        availCpu.put(t.getCurrentAssignedResource.getOwner, (avail - cpu))
 
         c = c + 1
-        availCpu.put(t.getCurrentAssignedResource.getOwner, (avail - cpu))
       }
     }
 
@@ -1386,45 +1403,45 @@ class JobManager(
         }
       }
 
-      priorities.foreach { priority =>
-        val tmWithCurrPriority = mutable.MutableList.empty[Instance]
-
-        instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
-          if(instance.numTasksWithPriority(priority) != 0) {
-            tmWithCurrPriority += instance
-
-            val tasksWithPriority = instance.tasksWithPriority(priority).asScala
-              .filter(_.receivedMetrics())
-
-            val requiredCpu = tasksWithPriority.foldRight(0) { (task, total) =>
-                total + reqCpu(task.getJobVertex, task.getJobVertex.minAc())
-              }
-
-            if(requiredCpu > availCpu(instance)) {
-              releaseCpuByKill(requiredCpu - availCpu(instance), tasksWithPriority.toList)
-            }
-
-            // This way, we already guarantee that the availCpu will only be used to improve
-            // accuracy
-            availCpu.put(instance, availCpu(instance) - requiredCpu)
-          }
+      // 1) First we will guarantee that all the tasks in all machines have enough
+      //    cpu to keep processing at minimum accuracy.
+      instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
+        // Total amount of required cpu to run the tasks in this instance, with
+        // minimum accuracy
+        val totalRequiredCpu = instance.tasks.values.asScala.map(_.asScala).flatten
+          .filter(_.receivedMetrics()).foldRight(0) { (task, total) =>
+            total + reqCpu(task.getJobVertex, task.getJobVertex.minAc())
         }
 
-        tmWithCurrPriority.map(tm => (tm, -slack(tm, priority))).sortBy(_._2)
-          .foreach { case (tm, _) =>
-            distributeEvenly(
-              tm.tasksWithPriority(priority).asScala
-                .filter(_.receivedMetrics()).toList,
-              tm
-            )
-          }
+        if(totalRequiredCpu > availCpu(instance)) {
+          val cpuToRelease = totalRequiredCpu - availCpu(instance)
+          val cpuReleased = releaseCpuByKill(instance, cpuToRelease)
+          availCpu.put(instance, availCpu(instance) - totalRequiredCpu + cpuReleased)
+        }
       }
 
-      // Compute drop probabilities
+      // 3) With the remaining cpu, we distribute it over the tasks that remained. We
+      //    start by achieving the maximum possible accuracy for the highes priority
+      //    tasks, and only then move to the next priority tasks.
+      priorities.foreach { priority =>
+        instanceManager.getAllRegisteredInstances.asScala.toList
+          .filter(_.numTasksWithPriority(priority) != 0)
+          .map(instance => (instance, -slack(instance, priority)))
+          .sortBy(_._2).foreach { case (instance, _) =>
+            distributeEvenly(
+              instance.tasksWithPriority(priority).asScala
+                .filter(_.receivedMetrics())
+                .filterNot(_.getJobVertex.notRunning()).toList,
+              instance
+            )
+        }
+      }
+
+      // 4) Compute drop probabilities
       currentJobs.values.filter(_._1.receivedMetrics()).foreach { case (job, _) =>
         val topologicalOrderFromSources = job.getVerticesTopologically.asScala.toList
 
-        // Back pass (propagates required accuracies)
+        // 4.1) Back pass (propagates required accuracies)
         topologicalOrderFromSources.reverseIterator.foreach { task =>
           val default = desired.getOrElse(task.getJobVertex, 0)
           val desiredActorTask = task.getProducedDataSets.foldRight(default) {
@@ -1441,7 +1458,7 @@ class JobManager(
           desired.put(task.getJobVertex, desiredActorTask)
         }
 
-        // Forward pass
+        // 4.2) Forward pass
         topologicalOrderFromSources.foreach { producer =>
           producer.getProducedDataSets.foreach { producedDataset =>
             // This only works because we have on dataset per consumer
@@ -1474,7 +1491,7 @@ class JobManager(
         }
       }
 
-      // Send probabilities
+      // 5) Send probabilities
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
         val probabilities = instance.tasks().values().asScala.map(_.asScala).flatten.map { task =>
           task.getProducedPartitions.asScala.map { case (id, irp) =>

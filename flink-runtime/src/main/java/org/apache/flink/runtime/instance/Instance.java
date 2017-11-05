@@ -31,13 +31,7 @@ import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Queue;
-import java.util.Set;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.ArrayDeque;
+import java.util.*;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -86,6 +80,8 @@ public class Instance implements SlotOwner {
 	// priority -> List of tasks
 	private HashMap<Integer, HashSet<ExecutionVertex>> tasks;
 
+	private SortedSet<Integer> sortedPriorities;
+
 	private int cpuLoad;
 
 	// --------------------------------------------------------------------------------------------
@@ -117,6 +113,7 @@ public class Instance implements SlotOwner {
 		}
 
 		this.tasks = new HashMap<>();
+		this.sortedPriorities = new TreeSet<Integer>();
 		this.cpuLoad = 0;
 	}
 
@@ -195,6 +192,10 @@ public class Instance implements SlotOwner {
 
 	public HashMap<Integer, HashSet<ExecutionVertex>> tasks() {
 		return tasks;
+	}
+
+	public SortedSet<Integer> getSortedPriorities() {
+		return sortedPriorities;
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -315,6 +316,7 @@ public class Instance implements SlotOwner {
 			}
 
 			priorityTasks.add(task);
+			sortedPriorities.add(priority);
 		}
 	}
 
@@ -363,6 +365,9 @@ public class Instance implements SlotOwner {
 			HashSet<ExecutionVertex> priorityTasks = tasks.get(task.getJobVertex().priority());
 			if(priorityTasks != null) {
 				priorityTasks.remove(task);
+				if(priorityTasks.size() == 0) {
+					sortedPriorities.remove(task.getJobVertex().priority());
+				}
 			}
 		}
 	}
