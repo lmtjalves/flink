@@ -299,18 +299,14 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			}
 
 			upstreamOutputRate = upstreamOutputRate + downStreamInputRate;
-
-			LOG.info("xpto;" + identifier + ";" + upstreamOutputRate + ";" + downStreamInputRate);
-
 		} else {
 			// It's not a source task, the current accuracy equals the difference between
 			// the downstream tasks input rate and the upstream tasks output rate
 			for (IntermediateResult result : this.getInputs()) {
 				ExecutionVertex[] vertexes = result.getProducer().getTaskVertices();
-				double nonDropFactor 	   = ((double) result.getNonDropProbability()) / 100D;
 
 				for (int i = 0; i < vertexes.length; i++) {
-					upstreamOutputRate += vertexes[i].numRecordsOutRate() * nonDropFactor;
+					upstreamOutputRate += vertexes[i].numRecordsOutRate();
 				}
 			}
 
@@ -332,7 +328,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		}
 
 		LOG.info("CurrAC;" + identifier + ";" + res);
-
+		
 		return res;
 	}
 

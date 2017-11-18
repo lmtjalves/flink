@@ -1238,9 +1238,6 @@ class JobManager(
     // Available CPU % that each Instance has available
     val availCpu = mutable.Map.empty[SlotOwner, Int]
 
-    // Cpu being used by task (works as a cache)
-    val taskCpuLoadCache = mutable.Map.empty[ExecutionJobVertex, Int]
-
     // CurrAc being used by task (works as a cache)
     val currAcCache = mutable.Map.empty[ExecutionJobVertex, Int]
 
@@ -1264,12 +1261,14 @@ class JobManager(
 
     def slack(instance: SlotOwner, priority: Int): Int = instance.tasksWithPriority(priority)
       .asScala.foldRight(0) { (task, total) =>
-        total + reqCpu(task.getJobVertex, maxAc(task)) - minCanGet(task)
+        val diffReq = reqCpu(task.getJobVertex, maxAc(task)) -
+          reqCpu(task.getJobVertex, task.getJobVertex.minAc())
+        total + diffReq - minCanGet(task)
       }
 
     def reqCpu(task: ExecutionJobVertex, wantedAc: Int): Int = {
       val currAc  = currAcCache.get(task).get
-      val currCpu = taskCpuLoadCache.get(task).get
+      val currCpu = task.getCpuLoad
 
       // * The currAc can only be zero when the rate difference is extremely high. In this case we
       //   need a lot of cpu, let's say 100 %.
@@ -1290,7 +1289,7 @@ class JobManager(
 
     def obtainedAc(task: ExecutionJobVertex, providedCpu: Int): Int = {
       val currAc  = currAcCache.get(task).get
-      val currCpu = taskCpuLoadCache.get(task).get
+      val currCpu = task.getCpuLoad
 
       if(currAc == 0) {
         // This should be as similar as possible to what we do in reqCpu()
@@ -1312,7 +1311,11 @@ class JobManager(
       }
     }
 
-    def releaseCpuByKill(instance: Instance, cpuToRelease: Int): Int = {
+    def releaseCpuByKill(
+      instance: Instance,
+      cpuToRelease: Int,
+      tasksReqCpu: Map[ExecutionVertex, Int]
+    ): Int = {
       var releasedCpu  = 0
 
       def doRelease(tasks: mutable.Set[(ExecutionVertex, Int)]): Unit = {
@@ -1332,7 +1335,7 @@ class JobManager(
 
       instance.getSortedPriorities.asScala.foreach { priority =>
         val tasks = instance.tasksWithPriority(priority).asScala.map { task =>
-          task -> taskCpuLoadCache(task.getJobVertex)
+          task -> tasksReqCpu(task)
         }
 
         if(cpuToRelease - releasedCpu <= 0) {
@@ -1350,9 +1353,6 @@ class JobManager(
      * list.
      */
     def distributeEvenly(tasks: List[ExecutionVertex], instance: Instance): Unit = {
-      // Quick exit
-      if(availCpu(instance) <= 0) return
-
       val tasksReqCpu = tasks.map(t =>
         (t, reqCpu(t.getJobVertex, maxAc(t)) - reqCpu(t.getJobVertex, t.getJobVertex.minAc()))
       )
@@ -1363,9 +1363,11 @@ class JobManager(
         val cpu   = Math.min(avail / (tasks.size - c), req)
 
         val ac = if(cpu == req) {
-          maxAc(t)
+          val a = maxAc(t)
+          a
         } else {
-          obtainedAc(t.getJobVertex, cpu) + t.getJobVertex.minAc()
+          val a = obtainedAc(t.getJobVertex, cpu) + t.getJobVertex.minAc()
+          a
         }
 
         t.getJobVertex.getJobVertex.getQueries.asScala.foreach { q =>
@@ -1399,25 +1401,30 @@ class JobManager(
       // Fill the caches
       currentJobs.values.foreach { case (jobGraph, _) =>
         jobGraph.getAllVertices.values().asScala.foreach { vertex =>
-          taskCpuLoadCache.put(vertex, vertex.getCpuLoad)
           currAcCache.put(vertex, vertex.getCurrAc)
         }
       }
+
 
       // 1) First we will guarantee that all the tasks in all machines have enough
       //    cpu to keep processing at minimum accuracy.
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
         // Total amount of required cpu to run the tasks in this instance, with
         // minimum accuracy
-        val totalRequiredCpu = instance.tasks.values.asScala.map(_.asScala).flatten
-          .filter(_.receivedMetrics()).foldRight(0) { (task, total) =>
-            total + reqCpu(task.getJobVertex, task.getJobVertex.minAc())
+        val requiredCpuPerTask = instance.tasks.values.asScala.map(_.asScala).flatten
+          .filter(_.receivedMetrics)
+          .map(t => t -> reqCpu(t.getJobVertex, t.getJobVertex.minAc)).toMap
+
+        val totalRequiredCpu = requiredCpuPerTask.foldRight(0) { case (task, total) =>
+          total + task._2
         }
 
         if(totalRequiredCpu > availCpu(instance)) {
           val cpuToRelease = totalRequiredCpu - availCpu(instance)
-          val cpuReleased = releaseCpuByKill(instance, cpuToRelease)
+          val cpuReleased  = releaseCpuByKill(instance, cpuToRelease, requiredCpuPerTask)
           availCpu.put(instance, availCpu(instance) - totalRequiredCpu + cpuReleased)
+        } else {
+          availCpu.put(instance, availCpu(instance) - totalRequiredCpu)
         }
       }
 

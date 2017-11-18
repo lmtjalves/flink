@@ -142,7 +142,7 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 			}
 
 			Instance instanceToUse = instanceLocalityPair.getLeft();
-			Locality locality = instanceLocalityPair.getRight();
+			Locality locality      = instanceLocalityPair.getRight();
 
 			try {
 				SimpleSlot slot = instanceToUse.allocateSimpleSlot(vertex.getJobId());
@@ -204,7 +204,7 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 			Instance instanceToUse = Collections.min(instances, new Comparator<Instance>() {
 				@Override
 				public int compare(Instance i1, Instance i2) {
-				return i1.getCpuLoad() - i2.getCpuLoad();
+					return (i1.getTasksCpuLoad() - i1.getCpuLoad()) - (i2.getTasksCpuLoad() - i2.getCpuLoad());
 				}
 			});
 
@@ -214,7 +214,7 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 			Instance instanceToUse = Collections.min(allInstances.values(), new Comparator<Instance>() {
 				@Override
 				public int compare(Instance i1, Instance i2) {
-					return i1.getCpuLoad() - i2.getCpuLoad();
+					return (i1.getTasksCpuLoad() - i1.getCpuLoad()) - (i2.getTasksCpuLoad() - i2.getCpuLoad());
 				}
 			});
 

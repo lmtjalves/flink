@@ -616,6 +616,7 @@ public class Task implements Runnable, TaskActions {
 	) {
 		ResultPartition partition = partitionsById.get(new ResultPartitionID(partitionId, executionId));
 		if(partition != null) {
+			LOG.info("T_SET_PROB;" + getJobID () + ";" + getJobVertexId() + ";" + partitionId + ";" + p );
 			partition.setNonDropProbability(p);
 		}
 	}

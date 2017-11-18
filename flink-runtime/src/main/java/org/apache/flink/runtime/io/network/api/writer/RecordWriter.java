@@ -47,7 +47,6 @@ import static org.apache.flink.runtime.io.network.api.serialization.RecordSerial
  * @param <T> the type of the record that can be emitted with this record writer
  */
 public class RecordWriter<T extends IOReadableWritable> {
-
 	protected final ResultPartitionWriter targetPartition;
 
 	private final ChannelSelector<T> channelSelector;
@@ -90,12 +89,6 @@ public class RecordWriter<T extends IOReadableWritable> {
 		for (int targetChannel : channelSelector.selectChannels(record, numChannels)) {
 			if(random.nextInt(100) < targetPartition.getChannelNonDropProbability()) {
 				sendToTarget(record, targetChannel);
-				System.out.println("Kept message [" + record + "] " +
-					"with probability " + targetPartition.getChannelNonDropProbability());
-
-			} else {
-				System.out.println("Dropped message [" + record + "] " +
-					"with probability " + targetPartition.getChannelNonDropProbability());
 			}
 		}
 	}
