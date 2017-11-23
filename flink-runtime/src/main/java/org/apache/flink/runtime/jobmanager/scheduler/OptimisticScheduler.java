@@ -17,13 +17,7 @@ import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayDeque;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Queue;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
+import java.util.*;
 
 
 public class OptimisticScheduler implements InstanceListener, SlotAvailabilityListener, SlotProvider {
@@ -204,7 +198,15 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 			Instance instanceToUse = Collections.min(instances, new Comparator<Instance>() {
 				@Override
 				public int compare(Instance i1, Instance i2) {
-					return (i1.getTasksCpuLoad() - i1.getCpuLoad()) - (i2.getTasksCpuLoad() - i2.getCpuLoad());
+				int cpu1 = (i1.getTasksCpuLoad() - i1.numCpuCores() * i1.getCpuLoad());
+				int cpu2 = (i2.getTasksCpuLoad() - i1.numCpuCores() * i2.getCpuLoad());
+
+				if(cpu1 == cpu2) {
+					// We pick randomly
+					return new Random().nextInt();
+				} else {
+					return cpu1 - cpu2;
+				}
 				}
 			});
 
@@ -214,7 +216,15 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 			Instance instanceToUse = Collections.min(allInstances.values(), new Comparator<Instance>() {
 				@Override
 				public int compare(Instance i1, Instance i2) {
-					return (i1.getTasksCpuLoad() - i1.getCpuLoad()) - (i2.getTasksCpuLoad() - i2.getCpuLoad());
+				int cpu1 = (i1.getTasksCpuLoad() - i1.numCpuCores() * i1.getCpuLoad());
+				int cpu2 = (i2.getTasksCpuLoad() - i1.numCpuCores() * i2.getCpuLoad());
+
+				if(cpu1 == cpu2) {
+					// We pick randomly
+					return new Random().nextInt();
+				} else {
+					return cpu1 - cpu2;
+				}
 				}
 			});
 
