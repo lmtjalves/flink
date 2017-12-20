@@ -615,11 +615,32 @@ public class Task implements Runnable, TaskActions {
 		int p
 	) {
 		ResultPartition partition = partitionsById.get(new ResultPartitionID(partitionId, executionId));
+
 		if(partition != null) {
 			LOG.info("T_SET_PROB;" + getJobID () + ";" + getJobVertexId() + ";" + partitionId + ";" + p );
 			partition.setNonDropProbability(p);
 		}
 	}
+
+	public void setSourceNonDropProbability(
+		ExecutionAttemptID executionId,
+		int p
+	) {
+		if(invokable == null) {
+			return;
+		}
+
+		if(!invokable.setDropProbability(p)) {
+			LOG.info("SOURCE_SET_PROB;" + getJobID () + ";" + getJobVertexId() + ";" + p );
+			for(ResultPartition partition : producedPartitions) {
+				partition.setNonDropProbability(partition.getNonDropProbability() * p / 100);
+			}
+		} else {
+			LOG.info("SOURCE_SET_PROB_DIRECT;" + getJobID () + ";" + getJobVertexId() + ";" + p );
+		}
+	}
+
+
 	/**
 	 * The core work method that bootstraps the task and executes it code
 	 */

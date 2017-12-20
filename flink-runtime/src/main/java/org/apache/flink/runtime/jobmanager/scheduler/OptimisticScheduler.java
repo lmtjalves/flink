@@ -13,6 +13,7 @@ import org.apache.flink.runtime.instance.InstanceListener;
 import org.apache.flink.runtime.instance.SimpleSlot;
 import org.apache.flink.runtime.instance.SlotProvider;
 import org.apache.flink.runtime.instance.InstanceDiedException;
+import org.apache.flink.runtime.jobmanager.JobManager;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,8 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 
 	/** All tasks pending to be scheduled */
 	private final Queue<QueuedTask> taskQueue = new ArrayDeque<>();
+
+	private Random random = new Random();
 
 	// ------------------------------------------------------------------------
 
@@ -129,7 +132,15 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 		// we need potentially to loop multiple times, because there may be false positives
 		// in the set-with-available-instances
 		while (true) {
-			Pair<Instance, Locality> instanceLocalityPair = findInstance(requestedLocations, localOnly);
+			LOG.info("XPTO_LOCATIONS;"  + requestedLocations);
+			Pair<Instance, Locality> instanceLocalityPair = findInstance(
+				requestedLocations,
+				localOnly,
+				vertex.getCpuLoad(),
+				vertex.getPrevLocation(),
+				vertex.markedFailed(),
+				vertex.getExecutionGraph().getFailureCause() instanceof JobManager.NoAvailableResourcesException
+			);
 
 			if (instanceLocalityPair == null){
 				return null;
@@ -143,6 +154,9 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 
 				if (slot != null) {
 					slot.setLocality(locality);
+					vertex.unsetReceivedMetrics();
+					vertex.unsetFailed();
+					instanceToUse.unsetWarmingUp();
 
 					LOG.info("SCHEDULED;" + vertex.getIdentifier() + ";" + instanceToUse.getId());
 					return slot;
@@ -168,69 +182,128 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 	 *                           no locality preference exists.
 	 * @param localOnly Flag to indicate whether only one of the exact local instances can be chosen.
 	 */
-	private Pair<Instance, Locality> findInstance(Iterable<TaskManagerLocation> requestedLocations, boolean localOnly) {
+	private Pair<Instance, Locality> findInstance(
+		Iterable<TaskManagerLocation> requestedLocations,
+		boolean localOnly,
+		int cpuLoad,
+		TaskManagerLocation prevLocation,
+		boolean wasFailed,
+		boolean noResourcesAvailable
+	) {
+		LOG.info("XPTO_PREV_LOC;" + prevLocation);
+		LOG.info("XPTO_WAS_FAILED;" + wasFailed);
+
 
 		Iterator<TaskManagerLocation> locations = requestedLocations == null ? null : requestedLocations.iterator();
 
-		if (locations != null && locations.hasNext()) {
+		// If the tasks was not failed and has a previous location, then we want to schedule it to
+		// the same previous location
+		if(!wasFailed && prevLocation != null) {
+			ArrayList<TaskManagerLocation> preLocationList = new ArrayList<TaskManagerLocation>();
+			preLocationList.add(prevLocation);
+			locations = preLocationList.iterator();
+		}
+
+		if(locations != null && locations.hasNext()) {
 			ArrayList<Instance> instances = new ArrayList<>();
 			Locality locality = Locality.LOCAL;
 
-			// we have a locality preference
-			while (locations.hasNext()) {
+			// We have a locality preference
+			while(locations.hasNext()) {
 				TaskManagerLocation location = locations.next();
+
 				if (location != null) {
-					instances.add(allInstances.get(location.getResourceID()));
+					// Must be different from the previous location if it is failed
+					if(!(location.equals(prevLocation) && wasFailed)) {
+						// We only use this instance if it does have available resources
+						Instance instance = allInstances.get(location.getResourceID());
+						if(instance != null) {
+							int estimatedAvailCpu = instance.estimatedAvailableCpuLoad();
+							LOG.info("XPTO_CPU;" + estimatedAvailCpu);
+							LOG.info("XPTO_WILL_CPU;" + cpuLoad);
+							if(cpuLoad <= estimatedAvailCpu) {
+								instances.add(instance);
+							}
+						}
+					} else {
+						LOG.info("XPTO_IGNORED_LOCATION");
+					}
 				}
 			}
 
 			if(instances.isEmpty()) {
+				LOG.info("XPTO_IS_EMPTY");
 				// no local instance available
 				if (localOnly) {
 					return null;
-				}
-				else {
+				} else {
 					locality = Locality.NON_LOCAL;
 					instances.addAll(allInstances.values());
+					instances.remove(prevLocation); // In this case we cannot use the previous location
+
+					// unless it's empty
+					if(instances.isEmpty()) {
+						instances.addAll(allInstances.values());
+					}
 				}
 			}
 
-			Instance instanceToUse = Collections.min(instances, new Comparator<Instance>() {
+			LOG.info("XPTO_INSTANCES;" + instances);
+
+			Instance instanceToUse = Collections.max(instances, new Comparator<Instance>() {
 				@Override
 				public int compare(Instance i1, Instance i2) {
-				int cpu1 = (i1.getTasksCpuLoad() - i1.numCpuCores() * i1.getCpuLoad());
-				int cpu2 = (i2.getTasksCpuLoad() - i1.numCpuCores() * i2.getCpuLoad());
+					int cpu1 = i1.estimatedAvailableCpuLoad();
+					int cpu2 = i2.estimatedAvailableCpuLoad();
 
-				if(cpu1 == cpu2) {
-					// We pick randomly
-					return new Random().nextInt();
-				} else {
-					return cpu1 - cpu2;
-				}
+					LOG.info("XPTO_I1;" + cpu1 + ";" + i1);
+					LOG.info("XPTO_I2;" + cpu2 + ";" + i2);
+
+					if(cpu1 == cpu2) {
+						// We pick randomly
+						return (int)((random.nextFloat() - 0.5F) * 100F);
+					} else {
+						return cpu1 - cpu2;
+					}
 				}
 			});
+
+			LOG.info("XPTO_WON;" + instanceToUse);
 
 			return new ImmutablePair<>(instanceToUse, locality);
 		} else {
+			ArrayList<Instance> instances = new ArrayList<>();
+			instances.addAll(allInstances.values());
+			instances.remove(prevLocation); // In this case we cannot use the previous location
+			if(instances.isEmpty()) {
+				instances.addAll(allInstances.values());
+			}
+
+			LOG.info("XPTO_IINSTANCES;" + allInstances.values());
 			// no location preference, so use some instance
-			Instance instanceToUse = Collections.min(allInstances.values(), new Comparator<Instance>() {
+			Instance instanceToUse = Collections.max(instances, new Comparator<Instance>() {
 				@Override
 				public int compare(Instance i1, Instance i2) {
-				int cpu1 = (i1.getTasksCpuLoad() - i1.numCpuCores() * i1.getCpuLoad());
-				int cpu2 = (i2.getTasksCpuLoad() - i1.numCpuCores() * i2.getCpuLoad());
+					int cpu1 = i1.estimatedAvailableCpuLoad();
+					int cpu2 = i2.estimatedAvailableCpuLoad();
 
-				if(cpu1 == cpu2) {
-					// We pick randomly
-					return new Random().nextInt();
-				} else {
-					return cpu1 - cpu2;
-				}
+					LOG.info("XPTO_I1;" + cpu1 + ";" + i1);
+					LOG.info("XPTO_I2;" + cpu2 + ";" + i2);
+
+					if(cpu1 == cpu2) {
+						// We pick randomly
+						return (int)((random.nextFloat() - 0.5F) * 100F);
+					} else {
+						return cpu1 - cpu2;
+					}
 				}
 			});
 
+			LOG.info("XPTO_WON;" + instanceToUse);
 			return new ImmutablePair<>(instanceToUse, Locality.UNCONSTRAINED);
 		}
 	}
+
 
 	@Override
 	public void newSlotAvailable(final Instance instance) {

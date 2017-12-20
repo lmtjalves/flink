@@ -343,6 +343,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 			}
 			this.assignedResource = slot;
 			this.assignedResourceLocation = slot.getTaskManagerLocation();
+			this.vertex.setPrevLocation(slot.getTaskManagerLocation());
 
 			// race double check, did we fail/cancel and do we need to release the slot?
 			if (this.state != DEPLOYING) {

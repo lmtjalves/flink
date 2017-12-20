@@ -405,13 +405,21 @@ class TaskManager(
         case UpdateTaskMultiplePartitionInfos(executionID, partitionInfos) =>
           updateTaskInputPartitions(executionID, partitionInfos)
 
-        case UpdateNonDropProbabilities(probabilities) => probabilities.foreach {
-          case (identifier, probability) => updateOutputPartitionNonDropProbability(
-            identifier._1,
-            identifier._2,
-            probability
-          )
-        }
+        case UpdateNonDropProbabilities(probabilities, sourceProbabilities) =>
+          probabilities.foreach {
+            case (identifier, probability) => updateOutputPartitionNonDropProbability(
+              identifier._1,
+              identifier._2,
+              probability
+            )
+          }
+
+          sourceProbabilities.foreach {
+            case (executionAttempt, probability) => updateSourceNonDropProbability(
+              executionAttempt,
+              probability
+            )
+          }
 
         // discards intermediate result partitions of a task execution on this TaskManager
         case FailIntermediateResultPartitions(executionID) =>
@@ -515,6 +523,18 @@ class TaskManager(
   ): Unit = Option(runningTasks.get(executionId)) match {
     case Some(task) =>
       task.setPartitionNonDropProbability(executionId, partitionID, nonDropProbability)
+    case None =>
+      log.debug(
+        s"Cannot find task with ID $executionId who's non drop probability must be updated"
+      )
+  }
+
+  private def updateSourceNonDropProbability(
+    executionId: ExecutionAttemptID,
+    nonDropProbability: Int
+  ): Unit = Option(runningTasks.get(executionId)) match {
+    case Some(task) =>
+      task.setSourceNonDropProbability(executionId, nonDropProbability)
     case None =>
       log.debug(
         s"Cannot find task with ID $executionId who's non drop probability must be updated"

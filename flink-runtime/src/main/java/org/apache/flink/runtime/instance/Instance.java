@@ -160,8 +160,10 @@ public class Instance implements SlotOwner {
 	}
 
 	public void setCpuLoad(int cpuLoad) {
-		LOG.info("CPU_LOAD;" + instanceId + ";" + cpuLoad);
-		this.cpuLoad = cpuLoad;
+		synchronized (instanceLock) {
+			LOG.info("CPU_LOAD;" + instanceId + ";" + cpuLoad);
+			this.cpuLoad = cpuLoad * numCpuCores();
+		}
 	}
 
 	public int getCpuLoad() {
@@ -173,12 +175,50 @@ public class Instance implements SlotOwner {
 			int cpuLoad = 0;
 			for(HashSet<ExecutionVertex> vertexes: tasks.values()) {
 				for(ExecutionVertex vertex : vertexes) {
-					cpuLoad += vertex.getCpuLoad();
+					if(vertex.receivedMetrics()) {
+						cpuLoad += vertex.getCpuLoad();
+					}
 				}
 			}
 
 			return cpuLoad;
 		}
+	}
+
+
+	public int getEstimatedTasksCpuLoad() {
+		synchronized (instanceLock) {
+			int cpuLoad = 0;
+			for(HashSet<ExecutionVertex> vertexes: tasks.values()) {
+				for(ExecutionVertex vertex : vertexes) {
+					if(vertex.receivedMetrics()) {
+						cpuLoad += vertex.getCpuLoad();
+					} else {
+						cpuLoad -= vertex.getCpuLoad();
+					}
+				}
+			}
+
+			return cpuLoad;
+		}
+	}
+
+	private int warmupTime = 10;
+
+	public boolean isWarmingUp() {
+		return warmupTime > 0;
+	}
+
+	public void setWarmingUp() {
+		warmupTime = warmupTime - 1;
+	}
+
+	public void unsetWarmingUp() {
+		warmupTime = 10;
+	}
+
+	public int estimatedAvailableCpuLoad() {
+		return numCpuCores() * 100 - getCpuLoad() + getEstimatedTasksCpuLoad();
 	}
 
 	public HashSet<ExecutionVertex> tasksWithPriority(int priority) {
@@ -366,6 +406,7 @@ public class Instance implements SlotOwner {
 			if(priorityTasks != null) {
 				priorityTasks.remove(task);
 				if(priorityTasks.size() == 0) {
+					this.cpuLoad = this.cpuLoad - task.getCpuLoad();
 					sortedPriorities.remove(task.getJobVertex().priority());
 				}
 			}

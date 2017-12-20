@@ -404,26 +404,36 @@ public class OperatorChain<OUT, OP extends StreamOperator<OUT>> {
 		}
 	}
 
-	private static final class CopyingChainingOutput<T> extends ChainingOutput<T> {
-		
+	static final class CopyingChainingOutput<T> extends ChainingOutput<T> {
+		private final Random random;
+		private int probability = 100;
 		private final TypeSerializer<T> serializer;
 		
 		public CopyingChainingOutput(OneInputStreamOperator<T, ?> operator, TypeSerializer<T> serializer) {
 			super(operator);
 			this.serializer = serializer;
+			this.random = new Random();
 		}
 
 		@Override
 		public void collect(StreamRecord<T> record) {
 			try {
-				numRecordsIn.inc();
-				StreamRecord<T> copy = record.copy(serializer.copy(record.getValue()));
-				operator.setKeyContextElement1(copy);
-				operator.processElement(copy);
+				if(random.nextInt(100) < probability) {
+					numRecordsIn.inc();
+					StreamRecord<T> copy = record.copy(serializer.copy(record.getValue()));
+					operator.setKeyContextElement1(copy);
+					operator.processElement(copy);
+				} else {
+					System.out.println("Dropped with probability " + probability);
+				}
 			}
 			catch (Exception e) {
 				throw new RuntimeException("Could not forward element to next operator", e);
 			}
+		}
+
+		public void setDropProbability(int probability) {
+			this.probability = probability;
 		}
 	}
 	

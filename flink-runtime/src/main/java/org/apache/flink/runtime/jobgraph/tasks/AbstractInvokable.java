@@ -133,4 +133,9 @@ public abstract class AbstractInvokable {
 	public ExecutionConfig getExecutionConfig() {
 		return this.environment.getExecutionConfig();
 	}
+
+	public boolean setDropProbability(int probability) {
+		// true if it was set
+		return false;
+	}
 }

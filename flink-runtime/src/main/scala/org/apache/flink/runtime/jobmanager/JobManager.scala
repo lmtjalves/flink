@@ -1226,6 +1226,9 @@ class JobManager(
       sender() ! ResponseWebMonitorPort(webMonitorPort)
   }
 
+  var prevDesired: mutable.Map[JobVertex, Int] = null
+  class NoAvailableResourcesException extends Exception("No resources available")
+
   /**
    * Re-tunes all the load shedders in the current executing jobs.
    */
@@ -1325,11 +1328,12 @@ class JobManager(
           }
 
           tasks.remove(taskToKill, taskCpu)
+          taskToKill.setFailed()
           releasedCpu = releasedCpu + taskCpu
 
           log.info(s"KILL;${taskToKill.getIdentifier}")
 
-          taskToKill.getExecutionGraph.fail(new Exception("No resources available"))
+          taskToKill.getExecutionGraph.fail(new NoAvailableResourcesException)
         }
       }
 
@@ -1347,6 +1351,7 @@ class JobManager(
 
       releasedCpu
     }
+
 
     /**
      * Distributes the remaining available cpu in a fair way, to all the tasks in the provided
@@ -1389,7 +1394,7 @@ class JobManager(
       }
 
       instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
-        val avail = instance.numCpuCores() * (100 - instance.getCpuLoad) + instance.getTasksCpuLoad
+        val avail = instance.numCpuCores() * 100 - instance.getCpuLoad + instance.getTasksCpuLoad
         log.info(s"TOTAL_AVAIL;${instance.getId};$avail")
 
         availCpu.put(
@@ -1405,10 +1410,32 @@ class JobManager(
         }
       }
 
+      var instancesIgnore = instanceManager.getAllRegisteredInstances.asScala.filter { instance =>
+        if(instance.isWarmingUp){
+          log.info(s"WARMING_UP")
+          instance.setWarmingUp()
+          true
+        }
+        else if(prevDesired == null) {
+          false // this will only happen at startup, we don't want to compute stuff at this point
+        } else {
+          val allFullAccuracy = instance.tasks.values.asScala.map(_.asScala).flatten.forall(ev =>
+            if(!prevDesired.contains(ev.getJobVertex.getJobVertex)) {
+              // We just assume it's 100%
+              true
+            } else {
+              prevDesired(ev.getJobVertex.getJobVertex) >= 100
+            }
+          )
+
+          instance.getCpuLoad < 100 && allFullAccuracy
+        }
+      }.toSet
 
       // 1) First we will guarantee that all the tasks in all machines have enough
       //    cpu to keep processing at minimum accuracy.
-      instanceManager.getAllRegisteredInstances.asScala.foreach { instance =>
+      instanceManager.getAllRegisteredInstances.asScala
+        .filterNot(instancesIgnore.contains(_)).foreach { instance =>
         // Total amount of required cpu to run the tasks in this instance, with
         // minimum accuracy
         val requiredCpuPerTask = instance.tasks.values.asScala.map(_.asScala).flatten
@@ -1476,10 +1503,7 @@ class JobManager(
               .map(_.getTarget.getJobVertex.getJobVertex)
 
             consumer.foreach { c =>
-
-              val value = if (producer.getJobVertex.isInputVertex) {
-                desired(producer.getJobVertex)
-              } else if (desired(producer.getJobVertex) != 0) {
+              val value = if (desired(producer.getJobVertex) != 0) {
                 desired(c) * 100 / desired(producer.getJobVertex)
               } else {
                 0
@@ -1510,11 +1534,24 @@ class JobManager(
           }
         }.flatten.toMap
 
+        // We also need to handle the special case of sources, where the input also drops data
+        val sourceProbabilities = instance.tasks().values().asScala.map(_.asScala).flatten
+          .filter(_.getNumberOfInputs == 0).map { task =>
+          // source tasks only
+          task.getCurrentExecutionAttempt.getAttemptId -> desired.getOrElse(
+            task.getJobVertex.getJobVertex,
+            100
+          )
+        }.toMap
+
         instance.getTaskManagerGateway.updateNonDropProbabilities(UpdateNonDropProbabilities(
-          probabilities
+          probabilities,
+          sourceProbabilities
         ))
       }
     }
+
+    prevDesired = desired
 
     log.info("Finished Tuning")
   }

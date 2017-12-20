@@ -204,6 +204,28 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		timerService = timeProvider;
 	}
 
+	public boolean setDropProbability(int probability) {
+		Output<StreamRecord<OUT>>  entryPoint = null;
+		try {
+			entryPoint = getHeadOutput();
+		} catch(NullPointerException e) {
+			// do nothing
+		}
+
+		if(entryPoint == null || operatorChain == null) {
+			return true;
+		}
+
+		if(entryPoint instanceof OperatorChain.CopyingChainingOutput && operatorChain.getChainLength() > 1) {
+			System.out.println("Setting probability to " + probability);
+			((OperatorChain.CopyingChainingOutput) entryPoint).setDropProbability(probability);
+
+			return true;
+		} else {
+			return false;
+		}
+	}
+
 	@Override
 	public final void invoke() throws Exception {
 

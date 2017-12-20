@@ -115,6 +115,28 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	private String identifier;
 
+	private boolean markedAsFailed = false;
+	private TaskManagerLocation prevLocation = null;
+
+	public void setFailed() {
+		markedAsFailed = true;
+	}
+
+	public TaskManagerLocation getPrevLocation() {
+		return prevLocation;
+	}
+
+	public void setPrevLocation(TaskManagerLocation prevLocation) {
+		this.prevLocation = prevLocation;
+	}
+
+	public void unsetFailed() {
+		markedAsFailed = false;
+	}
+
+	public boolean markedFailed() {
+		return markedAsFailed;
+	}
 
 	// --------------------------------------------------------------------------------------------
 
@@ -226,6 +248,14 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	public boolean receivedMetrics() {
 		return this.receivedMetrics;
+	}
+
+	public void unsetReceivedMetrics() {
+		this.receivedMetrics = false;
+	}
+
+	public void setCpuLoad(int cpuLoad) {
+		this.cpuLoad = cpuLoad;
 	}
 
 	public void setMetrics(

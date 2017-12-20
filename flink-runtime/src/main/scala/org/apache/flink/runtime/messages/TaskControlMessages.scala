@@ -130,7 +130,8 @@ object TaskMessages {
     extends TaskMessage with RequiresLeaderSessionID
 
   case class UpdateNonDropProbabilities(
-     probabilities: Map[(ExecutionAttemptID, IntermediateResultPartitionID), Int]
+    probabilities: Map[(ExecutionAttemptID, IntermediateResultPartitionID), Int],
+    sourceProbabilities:  Map[ExecutionAttemptID, Int]
   ) extends TaskMessage
 
 
