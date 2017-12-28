@@ -622,6 +622,12 @@ public class Task implements Runnable, TaskActions {
 		}
 	}
 
+	private int sourceNonDropProbability = 100;
+
+	public int getSourceNonDropProbability() {
+		return sourceNonDropProbability;
+	}
+
 	public void setSourceNonDropProbability(
 		ExecutionAttemptID executionId,
 		int p
@@ -636,6 +642,7 @@ public class Task implements Runnable, TaskActions {
 				partition.setNonDropProbability(partition.getNonDropProbability() * p / 100);
 			}
 		} else {
+			sourceNonDropProbability = p;
 			LOG.info("SOURCE_SET_PROB_DIRECT;" + getJobID () + ";" + getJobVertexId() + ";" + p );
 		}
 	}

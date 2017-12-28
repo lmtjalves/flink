@@ -1319,7 +1319,20 @@ class JobManager(
       cpuToRelease: Int,
       tasksReqCpu: Map[ExecutionVertex, Int]
     ): Int = {
-      var releasedCpu  = 0
+      var releasedCpu = 0
+      val l = mutable.SortedSet.empty[(Int, Int)](Ordering.fromLessThan { case (i1, i2) =>
+        if(i1._1 > i2._1) true
+        else i1._2 < i2._2
+      })
+      // take into account the probability
+      var tasksToKill = mutable.SortedSet.empty[ExecutionVertex](
+        Ordering.fromLessThan { case (t1, t2) =>
+          if(t1.getJobVertex.getJobVertex.getPriority > t2.getJobVertex.getJobVertex.getPriority) {
+            true
+          } else {
+            tasksReqCpu(t1) < tasksReqCpu(t2)
+          }
+      });
 
       def doRelease(tasks: mutable.Set[(ExecutionVertex, Int)]): Unit = {
         while(tasks.nonEmpty && cpuToRelease - releasedCpu > 0) {
@@ -1327,13 +1340,32 @@ class JobManager(
             case (_, tcpu) => Math.abs((cpuToRelease - releasedCpu) - tcpu)
           }
 
+          tasksToKill.add(taskToKill)
+
           tasks.remove(taskToKill, taskCpu)
-          taskToKill.setFailed()
-          releasedCpu = releasedCpu + taskCpu
+        }
+      }
 
-          log.info(s"KILL;${taskToKill.getIdentifier}")
+      def removeUnnecessary(): mutable.Set[ExecutionVertex] = {
+        val actualTasksToKill = mutable.Set.empty[ExecutionVertex]
+        tasksToKill.foreach { t =>
+          if(releasedCpu - tasksReqCpu(t) > cpuToRelease) {
+            releasedCpu = releasedCpu - tasksReqCpu(t)
+          } else {
+            actualTasksToKill.add(t)
+          }
+        }
 
-          taskToKill.getExecutionGraph.fail(new NoAvailableResourcesException)
+        actualTasksToKill
+      }
+
+      // Kill the tasks
+      def doKill(tasks: mutable.Set[ExecutionVertex]): Unit = {
+        tasks.foreach { t =>
+          t.setFailed()
+          releasedCpu = releasedCpu + tasksReqCpu(t)
+          log.info(s"KILL;${t.getIdentifier}")
+          t.getExecutionGraph.fail(new NoAvailableResourcesException)
         }
       }
 
@@ -1343,12 +1375,14 @@ class JobManager(
         }
 
         if(cpuToRelease - releasedCpu <= 0) {
+          doKill(removeUnnecessary())
           return releasedCpu
         } else {
           doRelease(tasks)
         }
       }
 
+      doKill(removeUnnecessary())
       releasedCpu
     }
 
@@ -1412,8 +1446,8 @@ class JobManager(
 
       var instancesIgnore = instanceManager.getAllRegisteredInstances.asScala.filter { instance =>
         if(instance.isWarmingUp){
-          log.info(s"WARMING_UP")
           instance.setWarmingUp()
+          log.info(s"WARMUP")
           true
         }
         else if(prevDesired == null) {
@@ -1535,7 +1569,7 @@ class JobManager(
         }.flatten.toMap
 
         // We also need to handle the special case of sources, where the input also drops data
-        val sourceProbabilities = instance.tasks().values().asScala.map(_.asScala).flatten
+        val sourceProbabilities = instance.tasks.values.asScala.map(_.asScala).flatten
           .filter(_.getNumberOfInputs == 0).map { task =>
           // source tasks only
           task.getCurrentExecutionAttempt.getAttemptId -> desired.getOrElse(

@@ -1407,14 +1407,20 @@ class TaskManager(
                 case _       => 0
               }
 
+              // We need to take into account the drop probability
+              val inputRate = (task.getKafkaConsumeRate * task.getSourceNonDropProbability) / 100
+              val kafkaLagRateCorrection =
+                (task.getKafkaConsumeRate * (100 - task.getSourceNonDropProbability)) / 100
+
+              // We add the delta to the kafka lag
               // If the task is a source task, we will send the Kafka related metrics
               // we assume all source tasks consume from Kafka (it's a restriction, since
               // Kafka is the only source that provides some metrics we can work with)
               tasksMetrics += taskId -> HeartbeatTaskMetrics(
                 task.getCpuLoad,
-                task.getKafkaConsumeRate,
+                inputRate,
                 ioMetrics.getNumRecordsOutPerSecond,
-                task.getKafkaLagVariation,
+                task.getKafkaLagVariation + kafkaLagRateCorrection,
                 lag
               );
             } else {
