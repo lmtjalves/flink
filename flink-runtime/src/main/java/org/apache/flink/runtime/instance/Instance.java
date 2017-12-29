@@ -203,18 +203,17 @@ public class Instance implements SlotOwner {
 		}
 	}
 
-	private int warmupTime = 10;
-
 	public boolean isWarmingUp() {
-		return warmupTime > 0;
-	}
+		for(HashSet<ExecutionVertex> vertexes : tasks.values()) {
+			for(ExecutionVertex vertex : vertexes) {
+				if(vertex.isWarmingUp()) {
+					LOG.info("WARMING_UP;" + vertex + ";");
+					return true;
+				}
+			}
+		}
 
-	public void setWarmingUp() {
-		warmupTime = warmupTime - 1;
-	}
-
-	public void unsetWarmingUp() {
-		warmupTime = 10;
+		return false;
 	}
 
 	public int estimatedAvailableCpuLoad() {

@@ -156,7 +156,7 @@ public class OptimisticScheduler implements InstanceListener, SlotAvailabilityLi
 					slot.setLocality(locality);
 					vertex.unsetReceivedMetrics();
 					vertex.unsetFailed();
-					instanceToUse.unsetWarmingUp();
+					vertex.setWarmingUp();
 
 					LOG.info("SCHEDULED;" + vertex.getIdentifier() + ";" + instanceToUse.getId());
 					return slot;

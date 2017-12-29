@@ -1446,11 +1446,21 @@ class JobManager(
 
       var instancesIgnore = instanceManager.getAllRegisteredInstances.asScala.filter { instance =>
         if(instance.isWarmingUp){
-          instance.setWarmingUp()
-          log.info(s"WARMUP")
+          log.info(s"WARMING_UP")
+
+          // We maintain the desired for the tasks in these instances
+          instance.tasks().asScala.foreach { case (_, vertexes) =>
+            vertexes.asScala.foreach { vertex =>
+              val jobVertex = vertex.getJobVertex.getJobVertex
+              jobVertex.getQueries.asScala.foreach { q =>
+                log.info(s"WARMING_UP_MAINTAINING ACC")
+                desired.put(q, Math.min(jobVertex.getAccuracy, desired.get(q).getOrElse(100)))
+              }
+            }
+          }
+
           true
-        }
-        else if(prevDesired == null) {
+        } else if(prevDesired == null) {
           false // this will only happen at startup, we don't want to compute stuff at this point
         } else {
           val allFullAccuracy = instance.tasks.values.asScala.map(_.asScala).flatten.forall(ev =>

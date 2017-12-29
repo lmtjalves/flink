@@ -272,6 +272,12 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		this.inputLagVariation = inputLagVariation;
 		this.lag 			   = lag;
 
+		if(!warmingUp && requestCountDown <= 0) {
+			// This is the in rate if we were processing 100% of the input
+			prevNumRecordsInRate = numRecordsInRate * 100 /
+				this.getInputEdges(0)[0].getSource().getIntermediateResult().getNonDropProbability();
+		}
+
 		// Log the received metrics
 		LOG.info("TASK_CPU;" 	 + identifier + ";" + cpuLoad);
 		LOG.info("REC_IN_RATE;"	 + identifier + ";" + numRecordsInRate);
@@ -372,6 +378,88 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 			}
 		}
 	}
+
+	public double getUpstreamOutputRate() {
+		double upstreamOutputRate  = 0;
+		ExecutionJobVertex jobVertex = this.getJobVertex();
+		ExecutionVertex[] vertices   = jobVertex.getTaskVertices();
+
+		if (jobVertex.getInputs().size() == 0) {
+			// It's reading data from Kafka
+
+			double downStreamInputRate = 0;
+			upstreamOutputRate 	= vertices[0].inputLagRate();
+			downStreamInputRate = vertices[0].numRecordsInRate();
+
+			for(int i = 1; i < vertices.length; i++) {
+				if (vertices[i].inputLagRate() > upstreamOutputRate) {
+					upstreamOutputRate 	= vertices[i].inputLagRate();
+					downStreamInputRate = vertices[i].numRecordsInRate();
+				}
+			}
+
+			upstreamOutputRate = upstreamOutputRate + downStreamInputRate;
+		} else {
+			// It's a task in the middle of the DAG
+			for (IntermediateResult result : jobVertex.getInputs()) {
+				ExecutionVertex[] vertexes = result.getProducer().getTaskVertices();
+
+				for (int i = 0; i < vertexes.length; i++) {
+					upstreamOutputRate += vertexes[i].numRecordsOutRate();
+				}
+
+				upstreamOutputRate = upstreamOutputRate / this.getTotalNumberOfParallelSubtasks();
+			}
+		}
+
+		return upstreamOutputRate;
+	}
+
+	// This is a cache of the warming up decision
+	private boolean warmingUp = true;
+	private double prevNumRecordsInRate = 0;
+	// We want to skip the first metrics where they are set to 0
+	private int requestCountDown = 1;
+
+	public void setWarmingUp() {
+		warmingUp = true;
+		requestCountDown = 1;
+	}
+
+	public boolean isWarmingUp() {
+		if(requestCountDown > 0) {
+			LOG.warn("WARMING_UP; requestCountDown > 0");
+			requestCountDown = requestCountDown - 1;
+			return true;
+		} else if(!warmingUp) {
+			LOG.warn("WARMING_UP;BECAUSE IT's FALSE");
+			return false;
+		} else {
+			double prev = prevNumRecordsInRate * jobVertex.getJobVertex().getAccuracy() / 100;
+			if(numRecordsInRate >= prev) {
+				// It's processing more than it was in the past
+				warmingUp = false;
+				requestCountDown = 1;
+
+			}
+			LOG.warn("WARMING_UP; numRecordsIn = " + numRecordsInRate + ";" + prev + ";" + warmingUp);
+
+			// Needs to take into account the current accuracy (so that they can be comparable)
+			double outputRate = getUpstreamOutputRate() * jobVertex.getJobVertex().getAccuracy() / 100;
+
+			if(outputRate <= numRecordsInRate) {
+				// Is receiving less than it was in the past
+				warmingUp = false;
+				requestCountDown = 1;
+			}
+
+			LOG.warn("WARMING_UP; outputRate = " + numRecordsInRate + ";" + outputRate + ";" + warmingUp);
+
+		}
+
+		return warmingUp;
+	}
+
 
 	EvictingBoundedList<Execution> getCopyOfPriorExecutionsList() {
 		synchronized (priorExecutions) {
