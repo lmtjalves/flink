@@ -115,6 +115,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	private String identifier;
 
+	private int desiredAc;
+
 	private boolean markedAsFailed = false;
 	private TaskManagerLocation prevLocation = null;
 
@@ -214,6 +216,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		this.inputLagVariation = 0D;
 		this.receivedMetrics   = false;
 		this.lag 			   = 0L;
+		this.desiredAc 		   = 100;
 
 		this.identifier = getJobId() + ";" + jobVertex.getJobVertexId() + ";" + subTaskIndex;
 
@@ -263,7 +266,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		Double numRecordsInRate,
 		Double numRecordsOutRate,
 		Double inputLagVariation,
-		Long lag
+		Long lag,
+		int desiredAc
 	) {
 		this.receivedMetrics   = true;
 		this.cpuLoad 		   = cpuLoad;
@@ -274,8 +278,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 		if(!warmingUp && requestCountDown <= 0) {
 			// This is the in rate if we were processing 100% of the input
-			prevNumRecordsInRate = numRecordsInRate * 100 /
-				this.getInputEdges(0)[0].getSource().getIntermediateResult().getNonDropProbability();
+			prevNumRecordsInRate = numRecordsInRate;
+			this.desiredAc       = desiredAc;
 		}
 
 		// Log the received metrics
@@ -398,7 +402,9 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 				}
 			}
 
-			upstreamOutputRate = upstreamOutputRate + downStreamInputRate;
+			// When this is executed, we know all tuples are being dropped in the source nodes
+			upstreamOutputRate = (upstreamOutputRate + downStreamInputRate) *
+				jobVertex.getJobVertex().getAccuracy() / 100;
 		} else {
 			// It's a task in the middle of the DAG
 			for (IntermediateResult result : jobVertex.getInputs()) {
@@ -409,6 +415,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 				}
 
 				upstreamOutputRate = upstreamOutputRate / this.getTotalNumberOfParallelSubtasks();
+				upstreamOutputRate = upstreamOutputRate * this.getInputEdges(0)[0].getSource()
+					.getIntermediateResult().getNonDropProbability() / 100;
 			}
 		}
 
@@ -419,38 +427,36 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	private boolean warmingUp = true;
 	private double prevNumRecordsInRate = 0;
 	// We want to skip the first metrics where they are set to 0
-	private int requestCountDown = 1;
+	private int requestCountDown = 2;
 
 	public void setWarmingUp() {
 		warmingUp = true;
-		requestCountDown = 1;
+		requestCountDown = 2;
 	}
 
 	public boolean isWarmingUp() {
 		if(requestCountDown > 0) {
-			LOG.warn("WARMING_UP; requestCountDown > 0");
+			LOG.warn("WARMING_UP; requestCountDown > 0;" + this);
 			requestCountDown = requestCountDown - 1;
 			return true;
 		} else if(!warmingUp) {
-			LOG.warn("WARMING_UP;BECAUSE IT's FALSE");
+			LOG.warn("WARMING_UP;BECAUSE IT's FALSE;" + this);
 			return false;
 		} else {
-			double prev = prevNumRecordsInRate * jobVertex.getJobVertex().getAccuracy() / 100;
+			double prev = prevNumRecordsInRate * jobVertex.getJobVertex().getAccuracy() / desiredAc;
 			if(numRecordsInRate >= prev) {
 				// It's processing more than it was in the past
 				warmingUp = false;
-				requestCountDown = 1;
-
 			}
+
 			LOG.warn("WARMING_UP; numRecordsIn = " + numRecordsInRate + ";" + prev + ";" + warmingUp);
 
 			// Needs to take into account the current accuracy (so that they can be comparable)
-			double outputRate = getUpstreamOutputRate() * jobVertex.getJobVertex().getAccuracy() / 100;
+			double outputRate = getUpstreamOutputRate();
 
-			if(outputRate <= numRecordsInRate) {
+			if(outputRate <= numRecordsInRate && outputRate >= 0) {
 				// Is receiving less than it was in the past
 				warmingUp = false;
-				requestCountDown = 1;
 			}
 
 			LOG.warn("WARMING_UP; outputRate = " + numRecordsInRate + ";" + outputRate + ";" + warmingUp);

@@ -191,6 +191,21 @@ public class Instance implements SlotOwner {
 			int cpuLoad = 0;
 			for(HashSet<ExecutionVertex> vertexes: tasks.values()) {
 				for(ExecutionVertex vertex : vertexes) {
+					if(!vertex.receivedMetrics()) {
+						cpuLoad -= vertex.getCpuLoad();
+					}
+				}
+			}
+
+			return cpuLoad;
+		}
+	}
+
+	/*public int getEstimatedTasksCpuLoad() {
+		synchronized (instanceLock) {
+			int cpuLoad = 0;
+			for(HashSet<ExecutionVertex> vertexes: tasks.values()) {
+				for(ExecutionVertex vertex : vertexes) {
 					if(vertex.receivedMetrics()) {
 						cpuLoad += vertex.getCpuLoad();
 					} else {
@@ -201,19 +216,21 @@ public class Instance implements SlotOwner {
 
 			return cpuLoad;
 		}
-	}
+	}*/
 
 	public boolean isWarmingUp() {
+		boolean res = false;
 		for(HashSet<ExecutionVertex> vertexes : tasks.values()) {
 			for(ExecutionVertex vertex : vertexes) {
 				if(vertex.isWarmingUp()) {
+					// We need to go through all
 					LOG.info("WARMING_UP;" + vertex + ";");
-					return true;
+					res = true;
 				}
 			}
 		}
 
-		return false;
+		return res;
 	}
 
 	public int estimatedAvailableCpuLoad() {

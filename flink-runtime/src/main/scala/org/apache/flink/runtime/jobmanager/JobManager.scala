@@ -1306,7 +1306,6 @@ class JobManager(
         if(providedCpu == 0) {
           currAc
         } else {
-          // Never gonna happen
           100
         }
       } else {
@@ -1314,7 +1313,7 @@ class JobManager(
       }
     }
 
-    def releaseCpuByKill(
+    /**def releaseCpuByKill(
       instance: Instance,
       cpuToRelease: Int,
       tasksReqCpu: Map[ExecutionVertex, Int]
@@ -1384,17 +1383,64 @@ class JobManager(
 
       doKill(removeUnnecessary())
       releasedCpu
-    }
+    }**/
 
+    def releaseCpuByKill(
+      instance: Instance,
+      cpuToRelease: Int,
+      tasksReqCpu: Map[ExecutionVertex, Int]
+    ): Int = {
+
+      log.info(s"Attempt to release;${cpuToRelease};${availCpu}")
+
+      var releasedCpu = 0
+      var proposedToRelease = mutable.SortedSet.empty[ExecutionVertex](
+        Ordering.fromLessThan { case (t1, t2) =>
+          if(t1.getJobVertex.priority() != t2.getJobVertex.priority()) {
+            t1.getJobVertex.priority() > t2.getJobVertex.priority()
+          } else {
+            tasksReqCpu(t1) < tasksReqCpu(t2)
+          }
+        }
+      )
+
+      // Step 1
+      instance.getSortedPriorities.asScala.foreach { priority =>
+        if(cpuToRelease - releasedCpu > 0) {
+          val tasks = instance.tasksWithPriority(priority).asScala
+          tasks.forall(t => proposedToRelease.add(t))
+          releasedCpu = releasedCpu + tasks.map(t => tasksReqCpu(t)).sum
+        }
+      }
+
+      log.info(s"Attempt to release;${proposedToRelease}")
+
+
+      // Step 2
+      proposedToRelease.foreach { t =>
+        if(releasedCpu - tasksReqCpu(t) >= cpuToRelease) {
+          releasedCpu = releasedCpu - tasksReqCpu(t)
+        } else {
+          t.setFailed()
+          log.info(s"KILL;${t.getIdentifier}")
+          t.getExecutionGraph.fail(new NoAvailableResourcesException)
+        }
+      }
+
+      releasedCpu
+    }
 
     /**
      * Distributes the remaining available cpu in a fair way, to all the tasks in the provided
      * list.
      */
     def distributeEvenly(tasks: List[ExecutionVertex], instance: Instance): Unit = {
-      val tasksReqCpu = tasks.map(t =>
+      val tasksReqCpu = tasks.map(t => {
+        log.info(s"DIST_EVEN;${t.getIdentifier};${maxAc(t)};${t.getJobVertex.minAc()}")
         (t, reqCpu(t.getJobVertex, maxAc(t)) - reqCpu(t.getJobVertex, t.getJobVertex.minAc()))
-      )
+      })
+
+      log.info(s"DIST_EVEN;$tasksReqCpu")
 
       var c = 0
       tasksReqCpu.sortBy(_._2).foreach { case (t, req) =>
@@ -1402,11 +1448,9 @@ class JobManager(
         val cpu   = Math.min(avail / (tasks.size - c), req)
 
         val ac = if(cpu == req) {
-          val a = maxAc(t)
-          a
+          maxAc(t)
         } else {
-          val a = obtainedAc(t.getJobVertex, cpu) + t.getJobVertex.minAc()
-          a
+          obtainedAc(t.getJobVertex, cpu) + t.getJobVertex.minAc()
         }
 
         t.getJobVertex.getJobVertex.getQueries.asScala.foreach { q =>
@@ -1441,6 +1485,18 @@ class JobManager(
       currentJobs.values.foreach { case (jobGraph, _) =>
         jobGraph.getAllVertices.values().asScala.foreach { vertex =>
           currAcCache.put(vertex, vertex.getCurrAc)
+        }
+      }
+
+      // Now properly compute the fullAc from the currAc of each task
+      currentJobs.values.foreach { case (jobGraph, _) =>
+        jobGraph.getVerticesTopologically.asScala.foreach { vertex =>
+          var maxUpstreamAc = 100;
+          vertex.getInputs.asScala.foreach { input =>
+            maxUpstreamAc = Math.min(currAcCache(input.getProducer), maxUpstreamAc)
+          }
+
+          currAcCache.put(vertex, currAcCache(vertex) * maxUpstreamAc / 100)
         }
       }
 
@@ -1535,6 +1591,7 @@ class JobManager(
           }
 
           desired.put(task.getJobVertex, desiredActorTask)
+          task.setDesiredAc(desiredActorTask)
         }
 
         // 4.2) Forward pass

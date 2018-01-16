@@ -92,6 +92,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 	private volatile int numSubtasksInFinalState;
 
+	private int desiredAc;
+
 	/**
 	 * Serialized task information which is for all sub tasks the same. Thus, it avoids to
 	 * serialize the same information multiple times in order to create the
@@ -102,7 +104,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	private InputSplitAssigner splitAssigner;
 
 	private String identifier;
-	
+
 	public ExecutionJobVertex(
 		ExecutionGraph graph,
 		JobVertex jobVertex,
@@ -219,6 +221,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 		this.identifier = getJobId() + ";" + getJobVertexId();
 		LOG.info("LTASK_NAME;" + identifier + ";" + getName());
+
+		desiredAc = 100;
 	}
 
 	public String getIdentifier() {
@@ -275,6 +279,10 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 		LOG.info("LTASK_CPU;" + identifier + ";" + maxCpu);
 
 		return maxCpu;
+	}
+
+	public void setDesiredAc(int desiredAc) {
+		this.desiredAc = desiredAc;
 	}
 
 	/**
@@ -365,7 +373,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 				numRecordsInRate,
 				numRecordsOutRate,
 				inputLagVariation,
-				lag
+				lag,
+				desiredAc
 			);
 		}
 	}
